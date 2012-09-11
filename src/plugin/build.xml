@@ -45,6 +45,7 @@
      <ant dir="protocol-ftp" target="deploy"/>
      <ant dir="protocol-http" target="deploy"/>
      <ant dir="protocol-httpclient" target="deploy"/>
+     <ant dir="parse-url" target="deploy"/>
      <ant dir="parse-ext" target="deploy"/>
      <ant dir="parse-js" target="deploy"/>
      <ant dir="parse-html" target="deploy"/>
@@ -83,6 +84,7 @@
      <ant dir="protocol-httpclient" target="test"/>
      <!--ant dir="parse-ext" target="test"/-->
      <ant dir="feed" target="test"/>
+     <ant dir="parse-url" target="deploy"/>
      <ant dir="parse-html" target="test"/>
      <ant dir="parse-metatags" target="test"/>
      <ant dir="parse-swf" target="test"/>
@@ -126,6 +128,7 @@
     <ant dir="protocol-ftp" target="clean"/>
     <ant dir="protocol-http" target="clean"/>
     <ant dir="protocol-httpclient" target="clean"/>
+    <ant dir="parse-url" target="deploy"/>
     <ant dir="parse-ext" target="clean"/>
     <ant dir="parse-js" target="clean"/>
     <ant dir="parse-html" target="clean"/>

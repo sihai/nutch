@@ -12,7 +12,24 @@
 -\.(gif|GIF|jpg|JPG|ico|ICO|css|sit|eps|wmf|rtf|zip|ppt|mpg|xls|gz|rpm|tgz|mov|MOV|exe|mp3|rss|xml|doc|pdf|txt|DOC|PDF|TXT)$
 
 # skip URLs containing certain characters as probable queries, etc.
--[?*!@=]
+#-[?*!@=]
+#+[?=&]
 
-# accept anything else
-+.
+# tmall
++^http://3c.tmall.com/$
++^http://detail.tmall.com/[\s\S]*$
++^http://list.tmall.com/[\s\S]*$
++^http://list.tmall.com/search_product.htm[\s\S]*$
+
+-^http://zhaoshang.tmall.com/[\s\S]*$
+-^http://fw.tmall.com/[\s\S]*$
+-^http://service.tmall.com/[\s\S]*$
+-^http://jump.taobao.com/[\s\S]*$
+-^http://pass.tmall.com/[\s\S]*$
+
+# jingdong
++^http://www.360buy.com/$
++^http://www.360buy.com/product/([0-9]{6})\.html$
+
+# skip others
+-.

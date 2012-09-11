@@ -36,6 +36,7 @@
   </publications>
 
   <dependencies>
+      <dependency org="com.google.gwt" name="gwt-incubator" rev="2.0.1"/>
   </dependencies>
   
 </ivy-module>

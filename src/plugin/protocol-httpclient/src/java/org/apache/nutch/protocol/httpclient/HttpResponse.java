@@ -21,22 +21,25 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
-// HTTP Client imports
 import org.apache.commons.httpclient.Header;
+import org.apache.commons.httpclient.HttpException;
 import org.apache.commons.httpclient.HttpVersion;
+import org.apache.commons.httpclient.NameValuePair;
 import org.apache.commons.httpclient.cookie.CookiePolicy;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.params.HttpMethodParams;
-import org.apache.commons.httpclient.HttpException;
-
-// Nutch imports
 import org.apache.nutch.crawl.CrawlDatum;
 import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.SpellCheckedMetadata;
 import org.apache.nutch.net.protocols.HttpDateFormat;
 import org.apache.nutch.net.protocols.Response;
 import org.apache.nutch.protocol.http.api.HttpBase;
+// HTTP Client imports
+// Nutch imports
 
 /**
  * An HTTP response.
@@ -67,9 +70,11 @@ public class HttpResponse implements Response {
 
     // Prepare GET method for HTTP request
     this.url = url;
-    GetMethod get = new GetMethod(url.toString());
+    GetMethod get = new GetMethod(/*resolve(url.toString())*/url.toString());
+    //putParameters(get, url.getQuery());
     get.setFollowRedirects(followRedirects);
     get.setDoAuthentication(true);
+    //get.setRequestHeader("User-Agent", "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/21.0.1180.89 Safari/537.1");
     if (datum.getModifiedTime() > 0) {
       get.setRequestHeader("If-Modified-Since",
           HttpDateFormat.toString(datum.getModifiedTime()));
@@ -178,7 +183,31 @@ public class HttpResponse implements Response {
       get.releaseConnection();
     }
   }
-
+  
+  private String resolve(String url) {
+	  int index = url.indexOf("?");
+	  if(-1 == index) {
+		  return url;
+	  }
+	  return url.substring(0, index);
+  }
+  
+  private void putParameters(GetMethod get, String queryString) {
+	  if(null == queryString || queryString.equals("")) {
+		  return;
+	  }
+	  List<NameValuePair> nvList = new ArrayList<NameValuePair>();
+	  String[] kvs = queryString.split("&");
+	  String[] k_v = null;
+	  for(String kv : kvs) {
+		  k_v = kv.split("=");
+		  if(k_v.length == 2) {
+			  nvList.add(new NameValuePair(k_v[0], k_v[1]));
+		  }
+	  }
+	  get.setQueryString(nvList.toArray(new NameValuePair[]{}));
+	  
+  }
   
   /* ------------------------- *
    * <implementation:Response> *

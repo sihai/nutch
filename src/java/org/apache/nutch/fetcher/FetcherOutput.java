@@ -22,7 +22,8 @@ import java.io.*;
 import org.apache.hadoop.io.*;
 import org.apache.nutch.crawl.CrawlDatum;
 import org.apache.nutch.protocol.Content;
-import org.apache.nutch.parse.*;
+import org.apache.nutch.parse.ParseImpl;
+import org.apache.nutch.parse.url.*;
 
 /* An entry in the fetcher's output. */
 public final class FetcherOutput implements Writable {

@@ -38,7 +38,16 @@ import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
 import org.apache.nutch.protocol.Content;
 import org.apache.hadoop.conf.*;
-import org.apache.nutch.parse.*;
+import org.apache.nutch.parse.HTMLMetaTags;
+import org.apache.nutch.parse.HtmlParseFilters;
+import org.apache.nutch.parse.Outlink;
+import org.apache.nutch.parse.Parse;
+import org.apache.nutch.parse.ParseData;
+import org.apache.nutch.parse.ParseImpl;
+import org.apache.nutch.parse.ParseResult;
+import org.apache.nutch.parse.ParseStatus;
+import org.apache.nutch.parse.Parser;
+import org.apache.nutch.parse.url.*;
 import org.apache.nutch.util.*;
 
 public class HtmlParser implements Parser {

@@ -161,6 +161,7 @@
       <packageset dir="${plugins.dir}/lib-http/src/java"/>
       <packageset dir="${plugins.dir}/lib-regex-filter/src/java"/>
       <packageset dir="${plugins.dir}/microformats-reltag/src/java"/>
+      <packageset dir="${plugins.dir}/parse-url/src/java"/>
       <packageset dir="${plugins.dir}/parse-ext/src/java"/>
       <packageset dir="${plugins.dir}/parse-html/src/java"/>
       <packageset dir="${plugins.dir}/parse-js/src/java"/>
@@ -539,6 +540,7 @@
       <packageset dir="${plugins.dir}/lib-http/src/java"/>
       <packageset dir="${plugins.dir}/lib-regex-filter/src/java"/>
       <packageset dir="${plugins.dir}/microformats-reltag/src/java"/>
+      <packageset dir="${plugins.dir}/parse-url/src/java"/>
       <packageset dir="${plugins.dir}/parse-ext/src/java"/>
       <packageset dir="${plugins.dir}/parse-html/src/java"/>
       <packageset dir="${plugins.dir}/parse-js/src/java"/>

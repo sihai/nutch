@@ -139,7 +139,8 @@ public abstract class HttpBase implements Protocol {
     try {
       URL u = new URL(urlString);
       String host = null;
-      Response response = getResponse(u, datum, false); // make a request
+      // FIXME
+      Response response = getResponse(u, datum, /*false*/ true); // make a request
       
       int code = response.getCode();
       byte[] content = response.getContent();
@@ -394,5 +395,4 @@ public abstract class HttpBase implements Protocol {
   public RobotRules getRobotRules(Text url, CrawlDatum datum) {
     return robots.getRobotRulesSet(this, url);
   }
-
 }

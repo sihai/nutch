@@ -39,7 +39,13 @@ import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
 import org.apache.nutch.net.*;
 import org.apache.nutch.protocol.*;
-import org.apache.nutch.parse.*;
+import org.apache.nutch.parse.Parse;
+import org.apache.nutch.parse.ParseImpl;
+import org.apache.nutch.parse.ParseResult;
+import org.apache.nutch.parse.ParseStatus;
+import org.apache.nutch.parse.ParseText;
+import org.apache.nutch.parse.ParseUtil;
+import org.apache.nutch.parse.url.*;
 import org.apache.nutch.scoring.ScoringFilters;
 import org.apache.nutch.util.*;
 

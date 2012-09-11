@@ -46,7 +46,17 @@ import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
 import org.apache.nutch.net.*;
 import org.apache.nutch.protocol.*;
-import org.apache.nutch.parse.*;
+import org.apache.nutch.parse.Outlink;
+import org.apache.nutch.parse.Parse;
+import org.apache.nutch.parse.ParseData;
+import org.apache.nutch.parse.ParseImpl;
+import org.apache.nutch.parse.ParseOutputFormat;
+import org.apache.nutch.parse.ParseResult;
+import org.apache.nutch.parse.ParseSegment;
+import org.apache.nutch.parse.ParseStatus;
+import org.apache.nutch.parse.ParseText;
+import org.apache.nutch.parse.ParseUtil;
+import org.apache.nutch.parse.url.*;
 import org.apache.nutch.scoring.ScoringFilterException;
 import org.apache.nutch.scoring.ScoringFilters;
 import org.apache.nutch.util.*;
@@ -663,9 +673,9 @@ public class Fetcher extends Configured implements Tool,
             redirectCount = 0;
             do {
               if (LOG.isInfoEnabled()) { LOG.info("fetching " + fit.url); }
-              if (LOG.isDebugEnabled()) {
-                LOG.debug("redirectCount=" + redirectCount);
-              }
+              //if (LOG.isDebugEnabled()) {
+                LOG.info("redirectCount=" + redirectCount);
+              //}
               redirecting = false;
               Protocol protocol = this.protocolFactory.getProtocol(fit.url.toString());
               RobotRules rules = protocol.getRobotRules(fit.url, fit.datum);

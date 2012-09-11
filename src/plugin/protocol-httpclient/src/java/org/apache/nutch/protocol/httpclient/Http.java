@@ -132,9 +132,15 @@ public class Http extends HttpBase {
    * @param args Command line arguments
    */
   public static void main(String[] args) throws Exception {
+	String[] arguments = new String[]{"http://list.tmall.com/search_product.htm?spm=141.70311.116200.16&navlog=13&nav=spu-cat&vmarket=72&style=g&n=40&s=0&cat=50097612"};
     Http http = new Http();
     http.setConf(NutchConfiguration.create());
-    main(http, args);
+    arguments[0] = "http://list.tmall.com/robots.txt";
+    //main(http, arguments);
+    arguments[0] = "http://list.tmall.com/search_product.htm?spm=141.70311.116200.16&navlog=13&nav=spu-cat&vmarket=72&style=g&n=40&s=0&cat=50097612";
+    for(int i = 0; i < 1; i++) {
+    	main(http, arguments);
+    }
   }
 
   /**
@@ -176,7 +182,9 @@ public class Http extends HttpBase {
     HostConfiguration hostConf = client.getHostConfiguration();
     ArrayList headers = new ArrayList();
     // Set the User Agent in the header
-    headers.add(new Header("User-Agent", userAgent));
+    //headers.add(new Header("User-Agent", userAgent));
+    
+    headers.add(new Header("User-Agent", "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/21.0.1180.89 Safari/537.1"));
     // prefer English
     headers.add(new Header("Accept-Language", acceptLanguage));
     // prefer UTF-8
