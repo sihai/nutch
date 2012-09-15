@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+    
+    <property>
+  		<name>searcher.dir</name>
+  		<value>/home/sihai/ihome/igo</value>
+		<description>igo</description>
+	</property>
+
+    <property>
+  		<name>plugin.includes</name>
+  		<value>protocol-httpclient|urlfilter-regex|parse-(url|html|tika)|index-(basic|anchor)|scoring-opic|urlnormalizer-(pass|regex|basic)</value>
+		<description>Regular expression naming plugin directory names to
+		  include.  Any plugin not matching this expression is excluded.
+		  In any case you need at least include the nutch-extensionpoints plugin. By
+		  default Nutch includes crawling just HTML and plain text via HTTP,
+		  and basic indexing and search plugins. In order to use HTTPS please enable 
+		  protocol-httpclient, but be aware of possible intermittent problems with the 
+		  underlying commons-httpclient library.
+		</description>
+	</property>
+	
+    <property>
+  		<name>urlfilter.order</name>
+  		<value>org.apache.nutch.urlfilter.regex.RegexURLFilter</value>
+  		<description>The order by which url filters are applied.
+  		If empty, all available url filters (as dictated by properties
+		plugin-includes and plugin-excludes above) are loaded and applied in system
+		defined order. If not empty, only named filters are loaded and applied
+		in given order. For example, if this property has value:
+		org.apache.nutch.urlfilter.regex.RegexURLFilter org.apache.nutch.urlfilter.prefix.PrefixURLFilter
+		then RegexURLFilter is applied first, and PrefixURLFilter second.
+		Since all filters are AND'ed, filter ordering does not have impact
+		on end result, but it may have performance implication, depending
+		on relative expensiveness of filters.
+		</description>
+	</property> 
+</configuration>
