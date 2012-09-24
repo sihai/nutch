@@ -33,7 +33,6 @@ import org.apache.nutch.parse.ParseStatus;
 import org.apache.nutch.parse.Parser;
 import org.apache.nutch.protocol.Content;
 import org.apache.nutch.util.NutchConfiguration;
-import org.apache.nutch.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +43,9 @@ public class URLParser implements Parser {
 	private static final Map<String, ItemIndexProcessor> itemIndexProcessorMap = new HashMap<String, ItemIndexProcessor>();
 	
 	static {
-		itemIndexProcessorMap.put("www.taobao.com", new TaobaoItemIndexProcessor());
+		AbstractItemIndexProcessor processor = new TaobaoItemIndexProcessor();
+		processor.init();
+		itemIndexProcessorMap.put("www.taobao.com", processor);
 		itemIndexProcessorMap.put("www.tmall.com", itemIndexProcessorMap.get("www.taobao.com"));
 		itemIndexProcessorMap.put("detail.tmall.com", itemIndexProcessorMap.get("www.taobao.com"));
 		itemIndexProcessorMap.put("item.taobao.com", itemIndexProcessorMap.get("taobao.com"));

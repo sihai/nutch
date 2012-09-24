@@ -55,7 +55,7 @@
 
 # jingdong
 +^http://www.360buy.com/$
-+^http://www.360buy.com/product/([0-9]{6})\.html$
++^http://www.360buy.com/product/([0-9]+)\.html$
 
 # skip others
 -.

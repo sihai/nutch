@@ -11,9 +11,18 @@
 		<description>igo</description>
 	</property>
 
+	<property>
+  		<name>plugin.folders</name>
+  		<value>./src/plugin</value>
+  		<description>Directories where nutch plugins are located.  Each
+  			element may be a relative or absolute path.  If absolute, it is used
+  			as is.  If relative, it is searched for on the classpath.
+  		</description>
+	</property>
+
     <property>
   		<name>plugin.includes</name>
-  		<value>protocol-httpclient|urlfilter-regex|parse-(url|html|tika)|index-(basic|anchor)|scoring-opic|urlnormalizer-(pass|regex|basic)</value>
+  		<value>protocol-httpclient|urlfilter-regex|parse-(html|tika)|index-(basic|anchor)|scoring-opic|urlnormalizer-(pass|regex|basic)</value>
 		<description>Regular expression naming plugin directory names to
 		  include.  Any plugin not matching this expression is excluded.
 		  In any case you need at least include the nutch-extensionpoints plugin. By

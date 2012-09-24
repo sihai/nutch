@@ -32,9 +32,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.FileStatus;
@@ -67,6 +69,10 @@ import org.apache.nutch.protocol.Content;
 import org.apache.nutch.util.HadoopFSUtil;
 import org.apache.nutch.util.NutchConfiguration;
 import org.apache.nutch.util.NutchJob;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /** Dump the content of a segment. */
 public class SegmentReader extends Configured implements
@@ -78,6 +84,20 @@ public class SegmentReader extends Configured implements
   
   private boolean co, fe, ge, pa, pd, pt;
   private FileSystem fs;
+  
+  // use threadpool
+  public static final int DEFAULT_MIN_THREAD = 4;
+  public static int DEFAULT_MAX_THREAD = 512;
+  public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
+  public static long MAX_KEEP_ALIVE_TIME = 60;
+  
+  private int minThread = DEFAULT_MIN_THREAD;
+  private int maxThread = DEFAULT_MAX_THREAD;
+  private int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
+  private long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
+  
+  private int maxParseTime = 30;
+  private ThreadPoolExecutor threadPool;
 
   public static class InputCompatMapper extends MapReduceBase implements
       Mapper<WritableComparable, Writable, Text, NutchWritable> {
@@ -123,6 +143,10 @@ public class SegmentReader extends Configured implements
 
   public SegmentReader() {
     super(null);
+    
+    threadPool = new ThreadPoolExecutor(minThread, maxThread,
+            keepAliveTime, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(workQueueSize), new ThreadFactoryBuilder().setNameFormat("SegmentReader-Thread-%d").setDaemon(true).build());
   }
   
   public SegmentReader(Configuration conf, boolean co, boolean fe, boolean ge, boolean pa,
@@ -139,6 +163,14 @@ public class SegmentReader extends Configured implements
     } catch (IOException e) {
       LOG.error("IOException:", e);
     }
+    
+    minThread = conf.getInt("segmentReader.minThread", DEFAULT_MIN_THREAD);
+    maxThread = conf.getInt("segmentReader.maxThread", DEFAULT_MAX_THREAD);
+    workQueueSize = conf.getInt("segmentReader.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
+    keepAliveTime = conf.getLong("segmentReader.keepAliveTime", MAX_KEEP_ALIVE_TIME);
+    threadPool = new ThreadPoolExecutor(minThread, maxThread,
+            keepAliveTime, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<Runnable>(workQueueSize), new ThreadFactoryBuilder().setNameFormat("SegmentReader-Thread-%d").setDaemon(true).build());
   }
 
   public void configure(JobConf job) {
@@ -287,6 +319,113 @@ public class SegmentReader extends Configured implements
   public void get(final Path segment, final Text key, Writer writer,
           final Map<String, List<Writable>> results) throws Exception {
     LOG.info("SegmentReader: get '" + key + "'");
+    
+    // 
+    /**
+     * 
+     */
+    int taskCount = 0;
+    if (co) taskCount++;
+    if (fe) taskCount++;
+    if (ge) taskCount++;
+    if (pa) taskCount++;
+    if (pd) taskCount++;
+    if (pt) taskCount++;
+    
+	final CountDownLatch latch = new CountDownLatch(taskCount);
+    if (co) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getMapRecords(new Path(segment, Content.DIR_NAME), key);
+            results.put("co", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+    });
+    
+    if (fe) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getMapRecords(new Path(segment, CrawlDatum.FETCH_DIR_NAME), key);
+            results.put("fe", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+    });
+    
+    if (ge) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getSeqRecords(new Path(segment, CrawlDatum.GENERATE_DIR_NAME), key);
+            results.put("ge", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+      });
+    
+      if (pa) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getSeqRecords(new Path(segment, CrawlDatum.PARSE_DIR_NAME), key);
+            results.put("pa", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+      });
+      
+      if (pd) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getMapRecords(new Path(segment, ParseData.DIR_NAME), key);
+            results.put("pd", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+      });
+      
+      if (pt) threadPool.execute(new Runnable() {
+        public void run() {
+          try {
+            List<Writable> res = getMapRecords(new Path(segment, ParseText.DIR_NAME), key);
+            results.put("pt", res);
+          } catch (Exception e) {
+            LOG.error("Exception:", e);
+          } finally {
+        	  latch.countDown();
+          }
+        }
+      });
+      
+      LOG.warn("SegmentReader.threadPool:");
+      LOG.warn(String.format("corePoolSize:%d\n" +
+      		"maximumPoolSize:%d\n" +
+      		"activeCount:%d\n" +
+      		"poolSize:%d\n" +
+      		"workQueueSize:%d\n" +
+      		"workQueueRemainingCapacity:%d", 
+      		threadPool.getCorePoolSize(), 
+      		threadPool.getMaximumPoolSize(), 
+      		threadPool.getActiveCount(), 
+      		threadPool.getPoolSize(),
+      		threadPool.getQueue().size(),
+      		threadPool.getQueue().remainingCapacity()));
+    
+    /*
     ArrayList<Thread> threads = new ArrayList<Thread>();
     if (co) threads.add(new Thread() {
       public void run() {
@@ -364,6 +503,10 @@ public class SegmentReader extends Configured implements
         LOG.debug("(" + cnt + " to retrieve)");
       }
     } while (cnt > 0);
+    */
+    
+    latch.await();
+    
     for (int i = 0; i < keys.length; i++) {
       List<Writable> res = results.get(keys[i][0]);
       if (res != null && res.size() > 0) {

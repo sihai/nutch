@@ -22,30 +22,51 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
+import java.util.StringTokenizer;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-// Slf4j Logging imports
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.hadoop.io.*;
-import org.apache.hadoop.fs.*;
-import org.apache.hadoop.conf.*;
-import org.apache.hadoop.mapred.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.FileInputFormat;
+import org.apache.hadoop.mapred.FileOutputFormat;
+import org.apache.hadoop.mapred.FileSplit;
+import org.apache.hadoop.mapred.InputSplit;
+import org.apache.hadoop.mapred.JobClient;
+import org.apache.hadoop.mapred.JobConf;
+import org.apache.hadoop.mapred.MapRunnable;
+import org.apache.hadoop.mapred.OutputCollector;
+import org.apache.hadoop.mapred.RecordReader;
+import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.mapred.SequenceFileInputFormat;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-
 import org.apache.nutch.crawl.CrawlDatum;
 import org.apache.nutch.crawl.NutchWritable;
 import org.apache.nutch.crawl.SignatureFactory;
 import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
-import org.apache.nutch.net.*;
-import org.apache.nutch.protocol.*;
+import org.apache.nutch.net.URLFilterException;
+import org.apache.nutch.net.URLFilters;
+import org.apache.nutch.net.URLNormalizers;
 import org.apache.nutch.parse.Outlink;
 import org.apache.nutch.parse.Parse;
 import org.apache.nutch.parse.ParseData;
@@ -56,10 +77,28 @@ import org.apache.nutch.parse.ParseSegment;
 import org.apache.nutch.parse.ParseStatus;
 import org.apache.nutch.parse.ParseText;
 import org.apache.nutch.parse.ParseUtil;
-import org.apache.nutch.parse.url.*;
+import org.apache.nutch.parse.url.AbstractItemIndexProcessor;
+import org.apache.nutch.parse.url.ItemIndexProcessor;
+import org.apache.nutch.parse.url.JingdongItemIndexProcessor;
+import org.apache.nutch.parse.url.TaobaoItemIndexProcessor;
+import org.apache.nutch.protocol.Content;
+import org.apache.nutch.protocol.Protocol;
+import org.apache.nutch.protocol.ProtocolFactory;
+import org.apache.nutch.protocol.ProtocolOutput;
+import org.apache.nutch.protocol.ProtocolStatus;
+import org.apache.nutch.protocol.RobotRules;
 import org.apache.nutch.scoring.ScoringFilterException;
 import org.apache.nutch.scoring.ScoringFilters;
-import org.apache.nutch.util.*;
+import org.apache.nutch.util.NutchConfiguration;
+import org.apache.nutch.util.NutchJob;
+import org.apache.nutch.util.StringUtil;
+import org.apache.nutch.util.TimingUtil;
+import org.apache.nutch.util.URLUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+// Slf4j Logging imports
 
 
 /**
@@ -107,7 +146,34 @@ public class Fetcher extends Configured implements Tool,
   public static final String PROTOCOL_REDIR = "protocol";
 
   public static final Logger LOG = LoggerFactory.getLogger(Fetcher.class);
+  
+  	//
+  	private static final Map<String, ItemIndexProcessor> itemIndexProcessorMap = new HashMap<String, ItemIndexProcessor>();
+	
+	static {
+		AbstractItemIndexProcessor processor = new TaobaoItemIndexProcessor();
+		processor.init();
+		itemIndexProcessorMap.put("www.taobao.com", processor);
+		itemIndexProcessorMap.put("www.tmall.com", itemIndexProcessorMap.get("www.taobao.com"));
+		itemIndexProcessorMap.put("detail.tmall.com", itemIndexProcessorMap.get("www.taobao.com"));
+		itemIndexProcessorMap.put("item.taobao.com", itemIndexProcessorMap.get("taobao.com"));
+		itemIndexProcessorMap.put("www.360buy.com", new JingdongItemIndexProcessor());
+	}
+	
+	public static final int DEFAULT_MIN_THREAD = 4;
+	public static int DEFAULT_MAX_THREAD = 8;
+	public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
+	public static long MAX_KEEP_ALIVE_TIME = 60;
+	  
+	private int minThread = DEFAULT_MIN_THREAD;
+	private int maxThread = DEFAULT_MAX_THREAD;
+	private int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
+	private long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
 
+	private BlockingQueue<Runnable> workQueue;	//
+	private ThreadPoolExecutor threadPool;			//
+	
+	
   public static class InputFormat extends SequenceFileInputFormat<Text, CrawlDatum> {
     /** Don't split inputs, to keep things polite. */
     public InputSplit[] getSplits(JobConf job, int nSplits)
@@ -304,6 +370,7 @@ public class Fetcher extends Configured implements Tool,
 
     public synchronized void dump() {
       LOG.info("  maxThreads    = " + maxThreads);
+      LOG.info("  queueSize     = " + queue.size());
       LOG.info("  inProgress    = " + inProgress.size());
       LOG.info("  crawlDelay    = " + crawlDelay);
       LOG.info("  minCrawlDelay = " + minCrawlDelay);
@@ -602,7 +669,7 @@ public class Fetcher extends Configured implements Tool,
 
     private int outlinksDepthDivisor;
     private boolean skipTruncated;
-
+    
     public FetcherThread(Configuration conf) {
       this.setDaemon(true);                       // don't hang JVM on exit
       this.setName("FetcherThread");              // use an informative name
@@ -635,13 +702,39 @@ public class Fetcher extends Configured implements Tool,
       maxOutlinkDepthNumLinks = conf.getInt("fetcher.follow.outlinks.num.links", 4);
       outlinksDepthDivisor = conf.getInt("fetcher.follow.outlinks.depth.divisor", 2);
     }
+    
+    /**
+     * 
+     * @param fit
+     */
+    private void parseURL(FetchItem fit) {
+    	
+    	ItemIndexProcessor processor = itemIndexProcessorMap.get(fit.getURL2().getHost());
+    	if(null == processor) {
+    		LOG.warn(String.format("None ItemIndexProcessor for url:%s ", fit.getURL2().toString()));
+    	} else {
+    		 LOG.warn("ParserURL.threadPool:");
+    		 LOG.warn(String.format("corePoolSize:%d\n" +
+    		    "maximumPoolSize:%d\n" +
+    		    "activeCount:%d\n" +
+    		    "poolSize:%d\n" +
+    		    "workQueueSize:%d\n" +
+    		    "workQueueRemainingCapacity:%d", 
+    		    threadPool.getCorePoolSize(), 
+    		    threadPool.getMaximumPoolSize(), 
+    		    threadPool.getActiveCount(), 
+    		    threadPool.getPoolSize(),
+    		    threadPool.getQueue().size(),
+    		    threadPool.getQueue().remainingCapacity()));
+    		threadPool.execute(new ParseURLTask(processor, fit));
+    	}
+    }
 
     public void run() {
       activeThreads.incrementAndGet(); // count threads
 
       FetchItem fit = null;
       try {
-
         while (true) {
           fit = fetchQueues.getFetchItem();
           if (fit == null) {
@@ -659,6 +752,11 @@ public class Fetcher extends Configured implements Tool,
               return;
             }
           }
+          
+          //
+          parseURL(fit);
+          
+          
           lastRequestStart.set(System.currentTimeMillis());
           Text reprUrlWritable =
             (Text) fit.datum.getMetaData().get(Nutch.WRITABLE_REPR_URL_KEY);
@@ -717,6 +815,7 @@ public class Fetcher extends Configured implements Tool,
 
               case ProtocolStatus.WOULDBLOCK:
                 // retry ?
+            	LOG.warn(String.format("Retry url:%s", fit.url.toString()));
                 fetchQueues.addFetchItem(fit);
                 break;
 
@@ -1115,9 +1214,23 @@ public class Fetcher extends Configured implements Tool,
 
   }
 
-  public Fetcher() { super(null); }
+  public Fetcher() { 
+	  this(null); 
+  }
 
-  public Fetcher(Configuration conf) { super(conf); }
+  public Fetcher(Configuration conf) { 
+	  super(conf);
+	  if(null != conf) {
+		  minThread = conf.getInt("parserURL.minThread", DEFAULT_MIN_THREAD);
+		  maxThread = conf.getInt("parserURL.maxThread", DEFAULT_MAX_THREAD);
+		  workQueueSize = conf.getInt("parserURL.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
+		  keepAliveTime = conf.getLong("parserURL.keepAliveTime", MAX_KEEP_ALIVE_TIME);
+	  }
+	  workQueue = new LinkedBlockingQueue<Runnable>(workQueueSize);
+	  threadPool = new ThreadPoolExecutor(minThread, maxThread,
+	            keepAliveTime, TimeUnit.SECONDS,
+	            workQueue, new ThreadFactoryBuilder().setNameFormat("parse-%d").setDaemon(true).build());
+  }
 
   private void updateStatus(int bytesInPage) throws IOException {
     pages.incrementAndGet();
@@ -1154,7 +1267,11 @@ public class Fetcher extends Configured implements Tool,
 //    }
   }
 
-  public void close() {}
+  public void close() {
+	  this.threadPool.shutdown();
+	  workQueue.clear();
+	  
+  }
 
   public static boolean isParsing(Configuration conf) {
     return conf.getBoolean("fetcher.parse", true);
@@ -1192,6 +1309,7 @@ public class Fetcher extends Configured implements Tool,
     getConf().setBoolean(Protocol.CHECK_BLOCKING, false);
     getConf().setBoolean(Protocol.CHECK_ROBOTS, false);
 
+    LOG.info(String.format("Try to spawn %d fetcher thread", threadCount));
     for (int i = 0; i < threadCount; i++) {       // spawn threads
       new FetcherThread(getConf()).start();
     }
@@ -1418,5 +1536,25 @@ public class Fetcher extends Configured implements Tool,
       }
     }
   }
-
+  
+  /**
+   * 
+   * @author sihai
+   *
+   */
+  private class ParseURLTask implements Runnable {
+	  
+	  private ItemIndexProcessor processor;
+	  private FetchItem fit;
+	  
+	  public ParseURLTask(ItemIndexProcessor processor, FetchItem fit) {
+		  this.processor = processor;
+		  this.fit = fit;
+	  }
+	  
+	  @Override
+	  public void run() {
+		  processor.indexItem(fit.getURL2().toString());
+	  }
+  }
 }

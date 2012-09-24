@@ -154,6 +154,10 @@ public class HtmlParser implements Parser {
       input.setEncoding(encoding);
       if (LOG.isTraceEnabled()) { LOG.trace("Parsing..."); }
       root = parse(input);
+      
+      // parse page
+      
+      
     } catch (IOException e) {
       return new ParseStatus(e).getEmptyParseResult(content.getUrl(), getConf());
     } catch (DOMException e) {
@@ -272,6 +276,15 @@ public class HtmlParser implements Parser {
       LOG.error("Error: ", e);
       };
     return res;
+  }
+  
+  /**
+   * 
+   * @param strURL
+   * @param frag
+   */
+  private void parseItem(String strURL, DocumentFragment frag) {
+	  
   }
   
   public static void main(String[] args) throws Exception {

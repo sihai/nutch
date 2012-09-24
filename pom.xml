@@ -295,6 +295,19 @@
 			<version>6.1.22</version>
 			<optional>true</optional>
 		</dependency>
+		
+		<dependency>
+			<groupId>com.ihome</groupId>
+			<artifactId>taobao-sdk</artifactId>
+			<version>0.0.1</version>
+		</dependency>
+		
+		<dependency>
+			<groupId>com.ihome</groupId>
+			<artifactId>matrix</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+		</dependency>
+		
 	</dependencies>
 </project>
 

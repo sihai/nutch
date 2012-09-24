@@ -17,19 +17,23 @@
 
 package org.apache.nutch.parse.html;
 
-import java.net.URL;
 import java.net.MalformedURLException;
-import java.util.Collection;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
-import java.util.Stack;
+import java.util.List;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.nutch.parse.Outlink;
 import org.apache.nutch.util.NodeWalker;
 import org.apache.nutch.util.URLUtil;
-import org.apache.hadoop.conf.Configuration;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
-import org.w3c.dom.*;
+import com.ihome.matrix.domain.CategoryDO;
+import com.ihome.matrix.domain.ItemDO;
 
 /**
  * A collection of methods for extracting content from DOM trees.
@@ -105,7 +109,7 @@ public class DOMContentUtils {
    *
    * @return true if nested anchors were found
    */
-  public boolean getText(StringBuffer sb, Node node, 
+  public static boolean getText(StringBuffer sb, Node node, 
                                       boolean abortOnNestedAnchors) {
     if (getTextHelper(sb, node, abortOnNestedAnchors, 0)) {
       return true;
@@ -119,13 +123,13 @@ public class DOMContentUtils {
    * #getText(StringBuffer,Node,boolean) getText(sb, node, false)}.
    * 
    */
-  public void getText(StringBuffer sb, Node node) {
+  public static void getText(StringBuffer sb, Node node) {
     getText(sb, node, false);
   }
 
   // returns true if abortOnNestedAnchors is true and we find nested 
   // anchors
-  private boolean getTextHelper(StringBuffer sb, Node node, 
+  private static boolean getTextHelper(StringBuffer sb, Node node, 
                                              boolean abortOnNestedAnchors,
                                              int anchorDepth) {
     boolean abort = false;
@@ -397,6 +401,74 @@ public class DOMContentUtils {
         }
       }
     }
+  }
+  
+  
+  public static ItemDO getJingdongItem(Node node) {
+	  ItemDO item = new ItemDO();
+	  List<CategoryDO> categoryPath = new ArrayList<CategoryDO>(4);
+	  NodeWalker walker = new NodeWalker(node);
+	  Node currentNode = null;
+	  String nodeName = null;
+	  NamedNodeMap map = null;
+	  Node attributeNode = null;
+	  short nodeType;
+	  while (walker.hasNext()) {
+	      currentNode = walker.nextNode();
+	      nodeName = currentNode.getNodeName();
+	      nodeType = currentNode.getNodeType();
+	      if (nodeType == Node.ELEMENT_NODE) {
+	          if ("div".equalsIgnoreCase(nodeName)) {
+	        	  map = currentNode.getAttributes();
+	        	  attributeNode = map.getNamedItem("class");
+	        	  if(null != attributeNode && "breadcrumb".equals(attributeNode.getNodeValue())) {
+	        		  // get it
+	        		  NodeWalker subWalker = new NodeWalker(currentNode);
+	        		  while(subWalker.hasNext()) {
+	        			  currentNode = subWalker.nextNode();
+	        			  nodeName = currentNode.getNodeName();
+	        		      nodeType = currentNode.getNodeType();
+	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        		      if("a".equalsIgnoreCase(nodeName)) {
+		        		    	  StringBuffer sb = new StringBuffer();
+		        		    	  getText(sb, currentNode);
+		        		    	  CategoryDO cat = new CategoryDO();
+		        		    	  cat.setName(sb.toString());
+		        		    	  categoryPath.add(cat);
+		        		      }
+	        		      }
+	        		  }
+	        	  }
+	          } else if("ul".equalsIgnoreCase(nodeName)) {
+	        	  map = currentNode.getAttributes();
+	        	  attributeNode = map.getNamedItem("id");
+	        	  if(null != attributeNode && "summary".equals(attributeNode.getNodeValue())) {
+	        		  NodeWalker subWalker = new NodeWalker(currentNode);
+	        		  while(subWalker.hasNext()) {
+	        			  currentNode = subWalker.nextNode();
+	        			  nodeName = currentNode.getNodeName();
+	        		      nodeType = currentNode.getNodeType();
+	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        		      if("a".equalsIgnoreCase(nodeName)) {
+		        		    	  StringBuffer sb = new StringBuffer();
+		        		    	  getText(sb, currentNode);
+		        		    	  CategoryDO cat = new CategoryDO();
+		        		    	  cat.setName(sb.toString());
+		        		    	  categoryPath.add(cat);
+		        		      }
+	        		      }
+	        		  }
+	        	  }
+	          }
+	     }
+	  }
+	  CategoryDO dumpy = categoryPath.remove(categoryPath.size() - 1);
+	  item.setName(dumpy.getName());
+	  return item;
+  }
+  
+  public static String getJingdongCategory(Node node) {
+	  return null;
   }
 
 }

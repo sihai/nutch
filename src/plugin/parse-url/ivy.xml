@@ -37,6 +37,7 @@
 
   <dependencies>
       <dependency org="com.ihome" name="taobao-sdk" rev="0.0.1"/>
+      <dependency org="com.ihome" name="matrix" rev="0.0.1-SNAPSHOT"/>
   </dependencies>
 
 </ivy-module>
