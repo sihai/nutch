@@ -17,23 +17,38 @@
 
 package org.apache.nutch.parse.html;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.nutch.matrix.bridge.MatrixBridge;
 import org.apache.nutch.parse.Outlink;
+import org.apache.nutch.protocol.Content;
 import org.apache.nutch.util.NodeWalker;
 import org.apache.nutch.util.URLUtil;
+import org.cyberneko.html.parsers.DOMParser;
+import org.dom4j.XPath;
+import org.dom4j.io.DOMReader;
+import org.dom4j.xpath.DefaultXPath;
+import org.jaxen.SimpleNamespaceContext;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 import com.ihome.matrix.domain.CategoryDO;
 import com.ihome.matrix.domain.ItemDO;
+import com.ihome.matrix.enums.PlatformEnum;
 
 /**
  * A collection of methods for extracting content from DOM trees.
@@ -44,6 +59,8 @@ import com.ihome.matrix.domain.ItemDO;
  */
 public class DOMContentUtils {
 
+	private static final Log logger = LogFactory.getLog(DOMContentUtils.class);
+	
   public static class LinkParams {
     public String elName;
     public String attrName;
@@ -404,8 +421,126 @@ public class DOMContentUtils {
   }
   
   
+  static String JING_DONG_ITEM_ID_XPATH = "/xmlns:html";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getJingdongItemV2(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_360_BUY.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_360_BUY));
+		  item.setDetailURL(content.getUrl());
+		  
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc=parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+		  
+		  Map<String, String> nameSpaces = new HashMap<String, String>();  
+		  XPath xpath=new DefaultXPath(JING_DONG_ITEM_ID_XPATH);  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");  
+	      xpath.setNamespaceContext(new SimpleNamespaceContext(nameSpaces));
+		  Object itemIdNode = xpath.selectSingleNode(document);
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  return null;
+  }
+
+  static String COO8_ITEM_ID_XPATH = "//*[@id='prod-markprice']/xmlns:DD";
+  static String COO8_ITEM_CATEGORY_AND_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[4]/xmlns:DIV[1]/xmlns:A/text()";
+  static String COO8_ITEM_PRICE_XPATH = "//*[@id='itemimg']/@src";
+  static String COO8_ITEM_PHOTO_XPATH = "//*[@id='sim390636']/@src";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getCool8Item(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_COO8.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_COO8));
+		  item.setDetailURL(content.getUrl());
+		  
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc=parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+		  
+		  Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+	      
+	      // itemId
+	      XPath xpath = new DefaultXPath(COO8_ITEM_ID_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setItemId(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // category and name
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(COO8_ITEM_CATEGORY_AND_NAME_XPATH);
+	      xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i == length) {
+					  item.setName(n.getText());
+				  } else {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // price
+		  xpath = new DefaultXPath(COO8_ITEM_PRICE_XPATH);  
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(discernCoo8Price(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  // photo
+		  xpath = new DefaultXPath(COO8_ITEM_PHOTO_XPATH);  
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  return null;
+  }
+  
   public static ItemDO getJingdongItem(Node node) {
 	  ItemDO item = new ItemDO();
+	  item.setPlatform(PlatformEnum.PLATFORM_360_BUY.getValue());
+	  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_360_BUY));
 	  List<CategoryDO> categoryPath = new ArrayList<CategoryDO>(4);
 	  NodeWalker walker = new NodeWalker(node);
 	  Node currentNode = null;
@@ -449,12 +584,88 @@ public class DOMContentUtils {
 	        			  nodeName = currentNode.getNodeName();
 	        		      nodeType = currentNode.getNodeType();
 	        		      if (nodeType == Node.ELEMENT_NODE) {
-		        		      if("a".equalsIgnoreCase(nodeName)) {
-		        		    	  StringBuffer sb = new StringBuffer();
-		        		    	  getText(sb, currentNode);
-		        		    	  CategoryDO cat = new CategoryDO();
-		        		    	  cat.setName(sb.toString());
-		        		    	  categoryPath.add(cat);
+		        		      if("li".equalsIgnoreCase(nodeName)) {
+		        		    	  map = currentNode.getAttributes();
+		        	        	  attributeNode = map.getNamedItem("id");
+		        	        	  if(null != attributeNode && "summary-market".equals(attributeNode.getNodeValue())) {
+		        	        		  NodeWalker subSubWalker = new NodeWalker(currentNode);
+		        	        		  while(subSubWalker.hasNext()) {
+		        	        			  currentNode = subSubWalker.nextNode();
+		        	        			  nodeName = currentNode.getNodeName();
+		        	        		      nodeType = currentNode.getNodeType();
+		        	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        	        		    	  if("span".equalsIgnoreCase(nodeName)) {
+		        	        		    		  StringBuffer sb = new StringBuffer();
+		        		        		    	  getText(sb, currentNode);
+		        	        		    		  item.setItemId(sb.toString());
+		        	        		    	  }
+		        	        		      }
+		        	        		  }
+		        	        	  } else if (null != attributeNode && "summary-price".equals(attributeNode.getNodeValue())) {
+		        	        		  NodeWalker subSubWalker = new NodeWalker(currentNode);
+		        	        		  while(subSubWalker.hasNext()) {
+		        	        			  currentNode = subSubWalker.nextNode();
+		        	        			  nodeName = currentNode.getNodeName();	
+		        	        		      nodeType = currentNode.getNodeType();
+		        	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        	        		    	  if("img".equalsIgnoreCase(nodeName)) {
+		        	        		    		  // 
+		        	        		    		  item.setPrice(discernJingdongPrice(currentNode.getAttributes().getNamedItem("src").getNodeValue()));
+		        	        		    	  }
+		        	        		      }
+		        	        		  }
+		        	        	  } else if (null != attributeNode && "summary-promotion".equals(attributeNode.getNodeValue())) {
+		        	        		  // 优惠
+		        	        		  NodeWalker subSubWalker = new NodeWalker(currentNode);
+		        	        		  while(subSubWalker.hasNext()) {
+		        	        			  currentNode = subSubWalker.nextNode();
+		        	        			  nodeName = currentNode.getNodeName();	
+		        	        		      nodeType = currentNode.getNodeType();
+		        	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        	        		    	  if("em".equalsIgnoreCase(nodeName)) {
+		        	        		    		  // 
+		        	        		    		  map = currentNode.getAttributes();
+		        		        	        	  attributeNode = map.getNamedItem("class");
+		        		        	        	  if(null != attributeNode && "hl_red".equals(attributeNode.getNodeValue())) {
+		        		        	        		  StringBuffer sb = new StringBuffer();
+			        		        		    	  getText(sb, currentNode);
+		        		        	        		  item.addPromotion(sb.toString());
+		        		        	        	  }
+		        	        		    	  }
+		        	        		      }
+		        	        		  }
+		        	        	  } else if (null != attributeNode && "summary-gifts".equals(attributeNode.getNodeValue())) {
+		        	        		  // 赠品
+		        	        		  NodeWalker subSubWalker = new NodeWalker(currentNode);
+		        	        		  while(subSubWalker.hasNext()) {
+		        	        			  currentNode = subSubWalker.nextNode();
+		        	        			  nodeName = currentNode.getNodeName();	
+		        	        		      nodeType = currentNode.getNodeType();
+		        	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        	        		    	  if("a".equalsIgnoreCase(nodeName)) {
+		        	        		    		  StringBuffer sb = new StringBuffer();
+		        		        		    	  getText(sb, currentNode);
+		        		        		    	  Node next = subSubWalker.nextNode();
+		        		        		    	  sb.append("  ");
+		        		        		    	  getText(sb, next);
+		        		        		    	  item.addGift(sb.toString());
+		        	        		    	  }
+		        	        		      }
+		        	        		  }
+		        	        	  } else if (null != attributeNode && "summary-grade".equals(attributeNode.getNodeValue())) {
+		        	        		  // 评分
+		        	        		  NodeWalker subSubWalker = new NodeWalker(currentNode);
+		        	        		  while(subSubWalker.hasNext()) {
+		        	        			  currentNode = subSubWalker.nextNode();
+		        	        			  nodeName = currentNode.getNodeName();	
+		        	        		      nodeType = currentNode.getNodeType();
+		        	        		      if (nodeType == Node.ELEMENT_NODE) {
+		        	        		    	  if("span".equalsIgnoreCase(nodeName)) {
+		        	        		    		  // TODO
+		        	        		    	  }
+		        	        		      }
+		        	        		  }
+		        	        	  }
 		        		      }
 	        		      }
 	        		  }
@@ -470,6 +681,27 @@ public class DOMContentUtils {
   public static String getJingdongCategory(Node node) {
 	  return null;
   }
+  
+  public static Double discernJingdongPrice(String photoURL) {
+	  System.out.println(String.format("Price photo url:%s", photoURL));
+	  // FIXME
+	  return 0.99D;
+  }
 
+  public static Double discernCoo8Price(String photoURL) {
+	  System.out.println(String.format("Price photo url:%s", photoURL));
+	  // FIXME
+	  return 0.99D;
+  }
+  
+  /**
+   * 
+   * @param src
+   * @return
+   */
+  public static String generatePhoto(String src) {
+	  // Do nothing
+	  return src;
+  }
 }
 

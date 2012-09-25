@@ -38,6 +38,8 @@
   <dependencies>
    <dependency org="org.ccil.cowan.tagsoup" name="tagsoup" rev="1.2.1"/>
    <dependency org="nekohtml" name="nekohtml" rev="1.9.6.2"/>
+   <dependency org="dom4j" name="dom4j" rev="1.6.1"/>
+   <dependency org="jaxen" name="jaxen" rev="1.1.4"/>
   </dependencies>
 
 </ivy-module>

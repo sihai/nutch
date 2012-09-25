@@ -136,6 +136,8 @@ public class HttpResponse implements Response {
 
         content = out.toByteArray();
       } catch (Exception e) {
+    	//
+    	e.printStackTrace();
         if (code == 200) throw new IOException(e.toString());
         // for codes other than 200 OK, we are fine with empty content
       } finally {

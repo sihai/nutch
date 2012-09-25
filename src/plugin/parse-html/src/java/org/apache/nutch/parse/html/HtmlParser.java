@@ -17,27 +17,24 @@
 
 package org.apache.nutch.parse.html;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Map;
-import java.net.URL;
-import java.net.MalformedURLException;
-import java.nio.charset.Charset;
-import java.io.*;
-import java.util.regex.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import org.cyberneko.html.parsers.*;
-import org.xml.sax.InputSource;
-import org.xml.sax.SAXException;
-import org.w3c.dom.*;
-import org.apache.html.dom.*;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import org.apache.hadoop.conf.Configuration;
+import org.apache.html.dom.HTMLDocumentImpl;
 import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
-import org.apache.nutch.protocol.Content;
-import org.apache.hadoop.conf.*;
 import org.apache.nutch.parse.HTMLMetaTags;
 import org.apache.nutch.parse.HtmlParseFilters;
 import org.apache.nutch.parse.Outlink;
@@ -47,8 +44,16 @@ import org.apache.nutch.parse.ParseImpl;
 import org.apache.nutch.parse.ParseResult;
 import org.apache.nutch.parse.ParseStatus;
 import org.apache.nutch.parse.Parser;
-import org.apache.nutch.parse.url.*;
-import org.apache.nutch.util.*;
+import org.apache.nutch.protocol.Content;
+import org.apache.nutch.util.EncodingDetector;
+import org.apache.nutch.util.NutchConfiguration;
+import org.cyberneko.html.parsers.DOMFragmentParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.w3c.dom.DOMException;
+import org.w3c.dom.DocumentFragment;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
 
 public class HtmlParser implements Parser {
   public static final Logger LOG = LoggerFactory.getLogger("org.apache.nutch.parse.html");
@@ -156,7 +161,6 @@ public class HtmlParser implements Parser {
       root = parse(input);
       
       // parse page
-      
       
     } catch (IOException e) {
       return new ParseStatus(e).getEmptyParseResult(content.getUrl(), getConf());
@@ -280,10 +284,9 @@ public class HtmlParser implements Parser {
   
   /**
    * 
-   * @param strURL
-   * @param frag
+   * @param content
    */
-  private void parseItem(String strURL, DocumentFragment frag) {
+  private void parseItem(Content content) {
 	  
   }
   
