@@ -17,16 +17,22 @@
 
 package org.apache.nutch.util;
 
+import java.net.IDN;
 import java.net.MalformedURLException;
-import java.net.*;
+import java.net.URI;
+import java.net.URL;
 import java.util.regex.Pattern;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.nutch.util.domain.DomainSuffix;
 import org.apache.nutch.util.domain.DomainSuffixes;
 
 /** Utility class for URL analysis */
 public class URLUtil {
   
+	private static final Log logger = LogFactory.getLog(URLUtil.class);
+	
   /**
    * Resolve relative URL-s and fix a few java.net.URL errors
    * in handling of URLs with embedded params and pure query
@@ -500,6 +506,39 @@ public class URLUtil {
       return null;
     }
   }
+  
+  public static String getParameter(String strURL, String parameter) {
+		
+		if(StringUtil.isEmpty(strURL)) {
+			return null;
+		}
+		try {
+			URL url = new URL(strURL);
+			String queryString = url.getQuery();
+			if(StringUtil.isEmpty(strURL)) {
+				return null;
+			}
+			String[] kvs = queryString.split("&");
+			String[] kv = null;
+			for(String s : kvs) {
+				if(StringUtil.isEmpty(s)) {
+					continue;
+				} else {
+					kv = s.split("=");
+					if(kv.length == 2) {
+						if(kv[0].equals(parameter)) {
+							return kv[1];
+						}
+					}
+				}
+			}
+		} catch (MalformedURLException e) {
+			logger.error(String.format("Wrong url:%s", strURL), e);
+		}
+		
+		return null;
+	}
+	
 
 
   /** For testing */

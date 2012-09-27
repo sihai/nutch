@@ -49,6 +49,7 @@ import org.xml.sax.SAXException;
 import com.ihome.matrix.domain.CategoryDO;
 import com.ihome.matrix.domain.ItemDO;
 import com.ihome.matrix.enums.PlatformEnum;
+import com.ihome.matrix.enums.StuffStatusEnum;
 
 /**
  * A collection of methods for extracting content from DOM trees.
@@ -61,7 +62,7 @@ public class DOMContentUtils {
 
 	private static final Log logger = LogFactory.getLog(DOMContentUtils.class);
 	
-  public static class LinkParams {
+	public static class LinkParams {
     public String elName;
     public String attrName;
       public int childLen;
@@ -434,6 +435,8 @@ public class DOMContentUtils {
 		  item.setPlatform(PlatformEnum.PLATFORM_360_BUY.getValue());
 		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_360_BUY));
 		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
 		  
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
@@ -461,7 +464,7 @@ public class DOMContentUtils {
   static String COO8_ITEM_ID_XPATH = "//*[@id='prod-markprice']/xmlns:DD";
   static String COO8_ITEM_CATEGORY_AND_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[4]/xmlns:DIV[1]/xmlns:A/text()";
   static String COO8_ITEM_PRICE_XPATH = "//*[@id='itemimg']/@src";
-  static String COO8_ITEM_PHOTO_XPATH = "//*[@id='sim390636']/@src";
+  static String COO8_ITEM_PHOTO_XPATH = "//*[@id='tmp']/xmlns:DIV/xmlns:DIV/xmlns:DIV[1]/xmlns:A/@href";
   
   /**
    * 
@@ -474,15 +477,17 @@ public class DOMContentUtils {
 		  item.setPlatform(PlatformEnum.PLATFORM_COO8.getValue());
 		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_COO8));
 		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
 		  
+		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
 	      parser.parse(input);
-	      org.w3c.dom.Document w3cDoc=parser.getDocument(); 
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
 	      DOMReader domReader = new DOMReader();
 	      org.dom4j.Document document = domReader.read(w3cDoc);
-		  
 		  Map<String, String> nameSpaces = new HashMap<String, String>();  
 	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
 	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
@@ -512,6 +517,10 @@ public class DOMContentUtils {
 			  }
 		  }
 		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
 		  // price
 		  xpath = new DefaultXPath(COO8_ITEM_PRICE_XPATH);  
 		  xpath.setNamespaceContext(context);
@@ -534,7 +543,647 @@ public class DOMContentUtils {
 	  } catch (SAXException e) {
 		  logger.error(e);
 	  }
+	  
 	  return null;
+  }
+  
+  static final String AMAZON_ITEM_NAME_XPATH = "//*[@id='btAsinTitle']/text()";
+  
+  static final String AMAZON_ITEM_PRICE_XPATH = "//*[@id='actualPriceValue']/B";
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getAmazonItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_AMAZON.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_AMAZON));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  //System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      // itemId
+	      XPath xpath = new DefaultXPath(COO8_ITEM_ID_XPATH);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setItemId(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // itemName
+		  xpath = new DefaultXPath(AMAZON_ITEM_NAME_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(AMAZON_ITEM_PRICE_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf(((org.dom4j.Node)node).getText().substring("￥ ".length()).replaceAll(",", "")));
+		  }
+		  
+		  // photo
+		  String html = content.toString();
+		  int start = html.indexOf("\"hiResImage\":");
+		  if(-1 != start) {
+			  int end = html.indexOf(",", start);
+			  if(-1 != end) {
+				  item.setLogoURL(html.substring(start + "\"hiResImage\":".length() + "\"".length(), end - "\"".length()));
+			  }
+		  }
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String DANGDANG_ITEM_ID_XPATH = "";
+  static final String DANGDANG_PRODUCT_PARAMETER_ID = "product_id";
+  static final String DNAGDANG_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[3]/xmlns:DIV[4]/xmlns:DIV[1]/xmlns:H1";
+  static final String DANGDANG_ITEM_PRICE_XPATH = "//*[@id='salePriceTag']";
+  static final String DANGDANG_ITEM_PHOTO_XPATH = "//*[@id='largePic']/@src";
+  static final String DANGDANG_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[3]/xmlns:DIV[3]/xmlns:A/text()";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getDangdangItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_DANGDANG.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_DANGDANG));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  //System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+	      
+	      // itemId
+	      item.setItemId(URLUtil.getParameter(content.getUrl(), DANGDANG_PRODUCT_PARAMETER_ID));
+	      
+	      // itemName
+		  XPath xpath = new DefaultXPath(DNAGDANG_ITEM_NAME_XPATH);
+		  xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // item category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(DANGDANG_ITEM_CATEGORY_XPATH);
+	      xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i == 1) {
+					  continue;
+				  } else {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(DANGDANG_ITEM_PRICE_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf(((org.dom4j.Node)node).getText().substring("￥".length()).replaceAll(",", "")));
+		  }
+		  
+		  // TODO 优惠价格
+		  
+		  // photo
+		  xpath = new DefaultXPath(DANGDANG_ITEM_PHOTO_XPATH);  
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String GOME_ITEM_ID_XPATH = "//*[@id='prodNum']/text()";
+  static final String GOME_ITEM_NAME_XPATH = "//*[@id='prodDisplayNaLoad']/DIV/H2";
+  static final String GOME_ITEM_PRICE_XPATH = "/HTML/BODY/DIV[6]/DIV[1]/DIV[3]/DIV[3]/B";
+  static final String GOME_ITEM_PHOTO_XPATH = "//*[@id='pic_1']/@bgpic";
+  static final String GOME_ITEM_CATEGORY_XPATH = "/HTML/BODY/DIV[4]/A/text()";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getGomeItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_GOME.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_GOME));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      // itemId
+	      XPath xpath = new DefaultXPath(GOME_ITEM_ID_XPATH);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+	      // itemName
+		  xpath = new DefaultXPath(GOME_ITEM_NAME_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // item category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(GOME_ITEM_CATEGORY_XPATH);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i == 1) {
+					  continue;
+				  } else {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(GOME_ITEM_PRICE_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf(((org.dom4j.Node)node).getText().replaceAll(",", "").trim()));
+		  }
+		  
+		  // TODO 优惠价格
+		  
+		  // photo
+		  xpath = new DefaultXPath(GOME_ITEM_PHOTO_XPATH);  
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String SUNING_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:SPAN";
+  static final String SUNING_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:A";
+  static final String SUNING_ITEM_PRICE_XPATH = "//*[@id='mainPrice']/xmlns:EM";
+  static final String SUNING_ITEM_PHOTO_XPATH = "//*[@id='preView_box']/xmlns:DIV/xmlns:UL/xmlns:LI[1]/xmlns:IMG/@src2";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getSuningItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_SUNING.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_SUNING));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+	      
+	      // itemId
+	      /*XPath xpath = new DefaultXPath(SUNING_ITEM_ID_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }*/
+	      
+	      // itemName
+	      XPath xpath = new DefaultXPath(SUNING_ITEM_NAME_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+	      // category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(SUNING_ITEM_CATEGORY_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i != 1) {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  // itemPrice
+		 /* xpath = new DefaultXPath(SUNING_ITEM_PRICE_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf(((org.dom4j.Node)node).getText().replaceAll(",", "").trim()));
+		  }*/
+		  
+		  // TODO 优惠价格
+		  
+		  // photo
+		  xpath = new DefaultXPath(SUNING_ITEM_PHOTO_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String NEW_EGG_ITEM_NAME_XPATH = "//*[@id=\'pro215419\']";
+  static final String NEW_EGG_ITEM_CATEGORY_XPATH = "//*[@id=\'crumb\']/xmlns:DIV/xmlns:A";
+  static final String NEW_EGG_ITEM_PHOTO_XPATH = "//*[@id='thumbnails1']/xmlns:DIV/xmlns:UL/xmlns:LI[1]/xmlns:A/xmlns:IMG/@ref2";
+  static final String NEW_EGG_ITEM_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[4]/xmlns:DEL";
+  static final String NEW_EGG_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:p[1]/xmlns:IMG/@src";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getNewEggItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_NEW_EGG.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_NEW_EGG));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+	      
+	      // itemId
+	      /*XPath xpath = new DefaultXPath(SUNING_ITEM_ID_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }*/
+	      
+	      // itemName
+	      XPath xpath = new DefaultXPath(NEW_EGG_ITEM_NAME_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+	      // category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(NEW_EGG_ITEM_CATEGORY_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i != 1 && i != length) {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(NEW_EGG_ITEM_PRICE_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(DOMContentUtils.discernNewEggPrice((((org.dom4j.Node)node).getText())));
+		  }
+		  
+		  // TODO 优惠价格
+		  
+		  // photo
+		  xpath = new DefaultXPath(NEW_EGG_ITEM_PHOTO_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String NO1_SHOP_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:DIV[3]/xmlns:DIV[1]/xmlns:H2/xmlns:FONT";
+  static final String NO1_SHOP_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:DIV[2]/xmlns:SPAN/xmlns:A";
+  static final String NO1_SHOP_ITEM_PHOTO_XPATH = "//*[@id='productImg']/@src";
+  static final String NO1_SHOP_ITEM_PRICE_XPATH = "//*[@id='nonMemberPrice']/xmlns:STRONG";
+  static final String NO1_SHOP_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:p[1]/xmlns:IMG/@src";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getNo1ShopItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_NO_1_SHOP.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_NO_1_SHOP));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  //System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+	      
+	      // itemId
+	      /*XPath xpath = new DefaultXPath(SUNING_ITEM_ID_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }*/
+	      
+	      // itemName
+	      XPath xpath = new DefaultXPath(NO1_SHOP_ITEM_NAME_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+	      // category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(NO1_SHOP_ITEM_CATEGORY_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i != 1 && i != length) {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(NO1_SHOP_ITEM_PRICE_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf((((org.dom4j.Node)node).getText())));
+		  }
+		  
+		  // TODO 优惠价格
+		  
+		  // photo
+		  xpath = new DefaultXPath(NO1_SHOP_ITEM_PHOTO_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  static final String FIVE_1_BUY_ITEM_NAME_XPATH = "//*[@id='container']/DIV[2]/DIV[2]/H1";
+  static final String FIVE_1_BUY_ITEM_CATEGORY_XPATH = "//*[@id='container']/DIV[1]/A";
+  static final String FIVE_1_BUY_ITEM_PHOTO_XPATH = "//*[@id='smallImage']/@src";
+  static final String FIVE_1_BUY_ITEM_PRICE_XPATH = "//*[@id='goods_detail_mate']/LI[2]/STRONG";
+  static final String FIVE_1_BUY_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:p[1]/xmlns:IMG/@src";
+  static final String FIVE_1_BUY_ITEM_GIFT_XPATH = "";
+  
+  /**
+   * 
+   * @param content
+   * @return
+   */
+  public static ItemDO getFive1BuyItem(Content content) {
+	  try {
+		  ItemDO item = new ItemDO();
+		  item.setPlatform(PlatformEnum.PLATFORM_51_BUY.getValue());
+		  item.setShop(MatrixBridge.getFixedShop(PlatformEnum.PLATFORM_51_BUY));
+		  item.setDetailURL(content.getUrl());
+		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
+		  item.setNumber(-1L);
+		  
+		  //System.out.println(content.toString());
+		  byte[] contentInOctets = content.getContent();
+	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
+	      DOMParser parser = new DOMParser();
+	      parser.parse(input);
+	      org.w3c.dom.Document w3cDoc = parser.getDocument(); 
+	      DOMReader domReader = new DOMReader();
+	      org.dom4j.Document document = domReader.read(w3cDoc);
+	      
+	      // itemId
+	      /*XPath xpath = new DefaultXPath(SUNING_ITEM_ID_XPATH);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }*/
+	      
+	      // itemName
+	      XPath xpath = new DefaultXPath(FIVE_1_BUY_ITEM_NAME_XPATH);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setName(((org.dom4j.Node)node).getText());
+		  }
+		  
+	      // category
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(FIVE_1_BUY_ITEM_CATEGORY_XPATH);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i != 1) {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  // itemPrice
+		  xpath = new DefaultXPath(FIVE_1_BUY_ITEM_PRICE_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(Double.valueOf((((org.dom4j.Node)node).getText())));
+		  }
+		  
+		  // TODO 优惠价格
+		  
+		  // TODO photo
+		  xpath = new DefaultXPath(FIVE_1_BUY_ITEM_PHOTO_XPATH);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  // TODO 赠品
+		 
+		  return item;
+	  } catch (IOException e) {
+		  logger.error(e);
+	  } catch (SAXException e) {
+		  logger.error(e);
+	  }
+	  
+	  return null;
+  }
+  
+  private static CategoryDO generateCategoryTree(List<String> categoryPath) {
+	  CategoryDO parent = null;
+	  CategoryDO cat = null;
+	  for(String catName : categoryPath) {
+		  cat = new CategoryDO();
+		  cat.setName(catName);
+		  cat.setParent(parent);
+		  parent = cat;
+	  }
+	  return cat;
   }
   
   public static ItemDO getJingdongItem(Node node) {
@@ -689,6 +1338,12 @@ public class DOMContentUtils {
   }
 
   public static Double discernCoo8Price(String photoURL) {
+	  System.out.println(String.format("Price photo url:%s", photoURL));
+	  // FIXME
+	  return 0.99D;
+  }
+  
+  public static Double discernNewEggPrice(String photoURL) {
 	  System.out.println(String.format("Price photo url:%s", photoURL));
 	  // FIXME
 	  return 0.99D;

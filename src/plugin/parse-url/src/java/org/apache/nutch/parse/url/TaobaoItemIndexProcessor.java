@@ -3,12 +3,10 @@
  */
 package org.apache.nutch.parse.url;
 
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.nutch.util.StringUtil;
+import org.apache.nutch.util.URLUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +19,6 @@ import com.ihome.matrix.enums.ItemStatusEnum;
 import com.ihome.matrix.enums.PlatformEnum;
 import com.ihome.matrix.enums.ShopStatusEnum;
 import com.ihome.matrix.enums.StuffStatusEnum;
-import com.mysql.jdbc.StringUtils;
 import com.taobao.api.ApiException;
 import com.taobao.api.DefaultTaobaoClient;
 import com.taobao.api.TaobaoClient;
@@ -67,45 +64,13 @@ public class TaobaoItemIndexProcessor extends AbstractItemIndexProcessor {
 	
 	@Override
 	protected String getItemId(String url) {
-		String itemId = getParameter(url, PARMATER_ITEM_ID);
+		String itemId = URLUtil.getParameter(url, PARMATER_ITEM_ID);
 		if(null == itemId) {
-			itemId = getParameter(url, PARAMETER_MALL_ST_ITEM_ID);
+			itemId = URLUtil.getParameter(url, PARAMETER_MALL_ST_ITEM_ID);
 		}
 		return itemId;
 	}
 
-	private String getParameter(String strURL, String parameter) {
-		
-		if(StringUtil.isEmpty(strURL)) {
-			return null;
-		}
-		try {
-			URL url = new URL(strURL);
-			String queryString = url.getQuery();
-			if(StringUtil.isEmpty(strURL)) {
-				return null;
-			}
-			String[] kvs = queryString.split("&");
-			String[] kv = null;
-			for(String s : kvs) {
-				if(StringUtil.isEmpty(s)) {
-					continue;
-				} else {
-					kv = s.split("=");
-					if(kv.length == 2) {
-						if(kv[0].equals(parameter)) {
-							return kv[1];
-						}
-					}
-				}
-			}
-		} catch (MalformedURLException e) {
-			logger.error(String.format("Wrong url:%s", strURL), e);
-		}
-		
-		return null;
-	}
-	
 	protected void process(String itemId) {
 		logger.info(String.format("Process one item in Taobao, itemId:%s", itemId));
 		Item item = getItem(Long.valueOf(itemId.trim()));
