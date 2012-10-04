@@ -37,6 +37,7 @@ import org.apache.nutch.metadata.Metadata;
 import org.apache.nutch.metadata.Nutch;
 import org.apache.nutch.parse.HTMLMetaTags;
 import org.apache.nutch.parse.HtmlParseFilters;
+import org.apache.nutch.parse.ItemParserHelper;
 import org.apache.nutch.parse.Outlink;
 import org.apache.nutch.parse.Parse;
 import org.apache.nutch.parse.ParseData;
@@ -72,6 +73,8 @@ public class HtmlParser implements Parser {
                     Pattern.CASE_INSENSITIVE);
   
   private String parserImpl;
+  
+  private ItemParserHelper itemParserHelper;
 
   /**
    * Given a <code>byte[]</code> representing an html file of an 
@@ -161,6 +164,7 @@ public class HtmlParser implements Parser {
       root = parse(input);
       
       // parse page
+      parseItem(content);
       
     } catch (IOException e) {
       return new ParseStatus(e).getEmptyParseResult(content.getUrl(), getConf());
@@ -287,7 +291,7 @@ public class HtmlParser implements Parser {
    * @param content
    */
   private void parseItem(Content content) {
-	  
+	  itemParserHelper.parse(content);
   }
   
   public static void main(String[] args) throws Exception {
@@ -318,6 +322,9 @@ public class HtmlParser implements Parser {
     this.utils = new DOMContentUtils(conf);
     this.cachingPolicy = getConf().get("parser.caching.forbidden.policy",
         Nutch.CACHING_FORBIDDEN_CONTENT);
+    
+    itemParserHelper = new ItemParserHelper();
+    itemParserHelper.init(conf);
   }
 
   public Configuration getConf() {
