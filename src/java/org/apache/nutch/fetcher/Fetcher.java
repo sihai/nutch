@@ -160,7 +160,7 @@ public class Fetcher extends Configured implements Tool,
 		itemIndexProcessorMap.put("www.360buy.com", new JingdongItemIndexProcessor());
 	}
 	
-	public static final int DEFAULT_MIN_THREAD = 4;
+	public static final int DEFAULT_MIN_THREAD = 2;
 	public static int DEFAULT_MAX_THREAD = 8;
 	public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
 	public static long MAX_KEEP_ALIVE_TIME = 60;
