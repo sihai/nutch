@@ -50,7 +50,7 @@ public class ParseUtil {
   /** Parser timeout set to 30 sec by default. Set -1 to deactivate **/
   
   public static final int DEFAULT_MIN_THREAD = 4;
-  public static int DEFAULT_MAX_THREAD = 512;
+  public static int DEFAULT_MAX_THREAD = 32;
   public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
   public static long MAX_KEEP_ALIVE_TIME = 60;
   
