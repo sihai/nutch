@@ -1,0 +1,3 @@
+/home/sihai/ihome/url  -dir /home/sihai/ihome/crawl -threads 16 -depth 10 -topN 10000
+
+-Dhadoop.log.dir=/home/sihai/ihome/log -Dhadoop.log.file=ihome.log -Xms512m -Xmx512m -Xmn128m -XX:PermSize=64m -XX:MaxPermSize=64m -Xloggc:/home/sihai/ihome/ihome-gc.log -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/sihai/ihome -XX:+DisableExplicitGC -Xnoclassgc -XX:+UseParNewGC -XX:+UseConcMarkSweepGC -XX:CMSInitiatingOccupancyFraction=85
