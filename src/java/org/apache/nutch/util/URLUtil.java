@@ -17,6 +17,12 @@
 
 package org.apache.nutch.util;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.IDN;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -538,6 +544,67 @@ public class URLUtil {
 		
 		return null;
 	}
+  
+  /**
+   * Fetch file from network, create tmp file for it, please delete it after no need it
+   * @param url
+   * @return
+   */
+  public static File getFile(String strURL) {
+	  
+	  	if(StringUtil.isEmpty(strURL)) {
+			return null;
+		}
+	  
+	  	HttpURLConnection connection = null;
+	  	BufferedInputStream in = null;
+	  	BufferedOutputStream out = null;
+		try {
+			URL url = new URL(strURL);
+			String fileName = url.getFile();
+			if(StringUtil.isEmpty(fileName)) {
+				return null;
+			}
+			fileName = fileName.substring(fileName.lastIndexOf("/") + "/".length());
+			connection = (HttpURLConnection)url.openConnection();
+			in = new BufferedInputStream(connection.getInputStream());
+			File tmpFile = File.createTempFile(fileName, "");
+			//tmpFile.deleteOnExit();
+			out = new BufferedOutputStream(new FileOutputStream(tmpFile));
+			byte[] buffer = new byte[4096];
+			int count = 0;
+			while(-1 != (count = in.read(buffer, 0, buffer.length))) {
+				out.write(buffer, 0, count);
+			}
+			buffer = null;
+			out.flush();
+			return tmpFile;
+		} catch (MalformedURLException e) {
+			logger.error(String.format("Wrong url:%s", strURL), e);
+		} catch (IOException e) { 
+			logger.error(String.format("Read url:%s or write content to file failed: ", strURL), e);
+		} finally {
+			if(null != in) {
+				try {
+					in.close();
+				} catch (IOException e) {
+					logger.error(e);
+				}
+			}
+			if(null != connection) {
+				connection.disconnect();
+			}
+			if(null != out) {
+				try {
+					out.close();
+				} catch (IOException e) {
+					logger.error(e);
+				}
+			}
+		}
+		
+		return null;
+  }
 	
 
 

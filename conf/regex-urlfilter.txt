@@ -55,7 +55,85 @@
 
 # jingdong
 +^http://www.360buy.com/$
-+^http://www.360buy.com/product/([0-9]+)\.html$
++^http://www.360buy.com/baby.html$
++^http://www.360buy.com/beauty.html$
+# 健康电器
++^http://www.360buy.com/products/737-1276-000.html$
+# 个人护理
++^http://www.360buy.com/products/737-964-000.html$
+# 营养健康
++^http://www.360buy.com/products/1320-1586-000.html$
+# 亚健康调理
++^http://www.360buy.com/products/1320-1587-000.html$
+# 健康礼品
++^http://www.360buy.com/products/1320-1588-000.html$
+# 急救卫生
++^http://www.360buy.com/products/1318-1469-000.html$
+# 成人用品
++^http://www.360buy.com/products/1318-1467-000.html$
+
++^http://www.360buy.com/product/([0-9]+).html$
+
+# amazon
++^http://www.amazon.cn/[\s\S]*$
++^http://www.amazon.cn/[\s\S]+/b/[\s\S]+$
+
++^http://www.amazon.cn/[\s\S]+/dp/[\s\S]+$
++^http://www.amazon.cn/gp/product/[\s\S]+$
+
+# coo8
++^http://www.coo8.com/[\s\S]+
++^http://www.coo8.com/products/[\s\S]+.html$
++^http://www.coo8.com/product/\s\S]+.html$
+
+# dangdang
++^http://[\s\S]+.dangdang.com/[\s\S]+$
++^http://category.dangdang.com/[\s\S]+$
++^http://categoryb.dangdang.com/[\s\S]+$
+
++^http://product.dangdang.com/product.aspx?product_id=[\s\S]+$
+
+# ehuifu
++^http://www.efeihu.com/Pages/ProductShow/ProductSecond.aspx[\s\S]+$
++^http://www.efeihu.com/Products/[\s\S]+.html[\s\S]*$
++^http://www.efeihu.com/Product/[\s\S]+.html[\s\S]*$
+
+# 51buy
++^http://www.51buy.com/personal_beauty.html[\s\S]*$
++^http://list.51buy.com/[\s\S]+.html[\s\S]*$
++^http://item.51buy.com/item-[\s\S]+.html[\s\S]*
+
+# gome
++^http://www.gome.com.cn/ec/homeus/toysgifts.html[\s\S]*$
++^http://www.gome.com.cn/ec/homeus/jump/category/cat[\s\S]+.html[\s\S]*$
++^http://www.gome.com.cn/ec/homeus/jump/product/[\s\S]+.html[\s\S]*$
+
+# lusen
++^http://www.lusen.com/Product/ProductCategoryList.aspx\?[\s\S]*
+
+# new egg
++^http://www.newegg.com.cn/Baby.htm$
++^http://www.newegg.com.cn/Health.htm$
++^http://www.newegg.com.cn/Food.htm$
+
++^http://www.newegg.com.cn/Category/[\s\S]+.htm[\s\S]*$
++^http://www.newegg.com.cn/SubCategory/[\s\S]+.htm[\s\S]*$
++^http://www.newegg.com.cn/Product/[\s\S]+.htm[\s\S]*$
+
+# no.1 shop
++^http://www.yihaodian.com/channel/[\s\S]+$
++^http://channel.yihaodian.com/[\s\S]*$
++^http://www.yihaodian.com/ctg/s2/[\s\S]+$
+
++^http://www.yihaodian.com/product/[\s\S]+$
+
+# suning
++^http://www.suning.com/emall/cd_[\s\S]+.html[\s\S]*$
++^http://search.suning.com/emall/pcd.do[\s\S]+$
++^http://search.suning.com/emall/strd.do[\s\S]+$
+
++^http://www.suning.com/emall/prd_[\s\S]+_.html[\s\S]*$
+# 
 
 # skip others
 -.

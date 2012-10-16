@@ -32,6 +32,11 @@ class ParseCallable implements Callable<ParseResult> {
 
   @Override
   public ParseResult call() throws Exception {
-    return p.getParse(content);
+	  try {
+		  return p.getParse(content);
+	  } catch (Throwable t) {
+		  t.printStackTrace();
+	  }
+	  return null;
   }    
 }

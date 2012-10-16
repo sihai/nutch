@@ -18,6 +18,7 @@ package org.apache.nutch.parse;
 
 // Commons Logging imports
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -25,10 +26,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.nutch.protocol.Content;
+import org.apache.nutch.util.NutchThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 
 /**
@@ -54,13 +54,17 @@ public class ParseUtil {
   public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
   public static long MAX_KEEP_ALIVE_TIME = 60;
   
-  private int minThread = DEFAULT_MIN_THREAD;
-  private int maxThread = DEFAULT_MAX_THREAD;
-  private int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
-  private long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
+  private static int minThread = DEFAULT_MIN_THREAD;
+  private static int maxThread = DEFAULT_MAX_THREAD;
+  private static int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
+  private static long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
   
-  private int maxParseTime = 30;
-  private ThreadPoolExecutor threadPool;
+  private static int maxParseTime = 30;
+  private static BlockingQueue<Runnable> workQueue;	//
+  private static ThreadPoolExecutor threadPool;
+  
+  private static Object _threadPool_lock_ = new Object();
+  private static boolean _threadPool_inited_ = false;
   
   //private ExecutorService executorService;
   
@@ -70,14 +74,20 @@ public class ParseUtil {
    */
   public ParseUtil(Configuration conf) {
     this.parserFactory = new ParserFactory(conf);
-    maxParseTime = conf.getInt("parser.timeout", 30);
-    minThread = conf.getInt("parser.minThread", DEFAULT_MIN_THREAD);
-    maxThread = conf.getInt("parser.maxThread", DEFAULT_MAX_THREAD);
-    workQueueSize = conf.getInt("parser.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
-    keepAliveTime = conf.getLong("parser.keepAliveTime", MAX_KEEP_ALIVE_TIME);
-    threadPool = new ThreadPoolExecutor(minThread, maxThread,
-            keepAliveTime, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<Runnable>(workQueueSize), new ThreadFactoryBuilder().setNameFormat("parse-%d").setDaemon(true).build());
+    synchronized(_threadPool_lock_) {
+    	if(!_threadPool_inited_) {
+		    maxParseTime = conf.getInt("parser.timeout", 30);
+		    minThread = conf.getInt("parser.minThread", DEFAULT_MIN_THREAD);
+		    maxThread = conf.getInt("parser.maxThread", DEFAULT_MAX_THREAD);
+		    workQueueSize = conf.getInt("parser.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
+		    keepAliveTime = conf.getLong("parser.keepAliveTime", MAX_KEEP_ALIVE_TIME);
+		    workQueue = new LinkedBlockingQueue<Runnable>(workQueueSize);
+		    threadPool = new ThreadPoolExecutor(minThread, maxThread,
+		            keepAliveTime, TimeUnit.SECONDS,
+		            workQueue, new NutchThreadFactory("HTML-Parser", null, true));
+		    _threadPool_inited_ = true;
+    	}
+    }
     //executorService = Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("parse-%d").setDaemon(true).build());
   }
   

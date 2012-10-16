@@ -291,6 +291,7 @@ public class HtmlParser implements Parser {
    * @param content
    */
   private void parseItem(Content content) {
+	  LOG.info(String.format("Try to parse item for url:%s", content.getUrl()));
 	  itemParserHelper.parse(content);
   }
   

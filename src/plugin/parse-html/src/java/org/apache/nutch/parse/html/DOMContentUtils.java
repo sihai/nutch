@@ -17,8 +17,14 @@
 
 package org.apache.nutch.parse.html;
 
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
@@ -26,6 +32,9 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import net.sourceforge.tess4j.Tesseract;
+import net.sourceforge.tess4j.TesseractException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -41,6 +50,7 @@ import org.apache.nutch.protocol.ProtocolNotFound;
 import org.apache.nutch.protocol.ProtocolOutput;
 import org.apache.nutch.util.NodeWalker;
 import org.apache.nutch.util.NutchConfiguration;
+import org.apache.nutch.util.StringUtil;
 import org.apache.nutch.util.URLUtil;
 import org.cyberneko.html.parsers.DOMParser;
 import org.dom4j.XPath;
@@ -55,6 +65,8 @@ import org.xml.sax.SAXException;
 
 import com.ihome.matrix.domain.CategoryDO;
 import com.ihome.matrix.domain.ItemDO;
+import com.ihome.matrix.enums.FreightFeePayerEnum;
+import com.ihome.matrix.enums.ItemStatusEnum;
 import com.ihome.matrix.enums.PlatformEnum;
 import com.ihome.matrix.enums.StuffStatusEnum;
 
@@ -88,6 +100,16 @@ public class DOMContentUtils {
   private HashMap<String,LinkParams> linkParams = new HashMap<String,LinkParams>();
   private static Configuration conf = NutchConfiguration.create();
   private static ProtocolFactory protocolFactory = new ProtocolFactory(conf);
+  
+  // OCR
+  private static Tesseract instance;
+  
+  static {
+	  instance = Tesseract.getInstance();  // JNA Interface Mapping
+	  //instance.setLanguage("chi_sim");
+	  //instance.setHocr(true);
+	  instance.setPageSegMode(7);
+  }
   
   public DOMContentUtils(Configuration conf) {
     setConf(conf);
@@ -430,7 +452,13 @@ public class DOMContentUtils {
   }
   
   
-  static String JING_DONG_ITEM_ID_XPATH = "/xmlns:html";
+  static String JING_DONG_ITEM_ID_XPATH = "//*[@id='summary-market']/xmlns:DIV[2]/xmlns:SPAN/text()";
+  //html/body/div[4]/div/span/a[1]
+  //html/body/div[4]/div/span/a[1]
+  //html/body/div[3]/div/span/a[1]
+  static String JING_DONG_ITEM_CATEGORY_AND_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[3]/xmlns:DIV/xmlns:SPAN/xmlns:A";
+  static String JING_DONG_ITEM_PRICE_XPATH = "//*[@id='summary-price']/xmlns:DIV[2]/xmlns:STRONG/xmlns:IMG/@src";
+  static String JING_DONG_ITEM_PHOTO_XPATH = "//*[@id='spec-n1']/xmlns:IMG/@src";
   
   /**
    * 
@@ -445,7 +473,11 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
+		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -453,12 +485,53 @@ public class DOMContentUtils {
 	      org.w3c.dom.Document w3cDoc=parser.getDocument(); 
 	      DOMReader domReader = new DOMReader();
 	      org.dom4j.Document document = domReader.read(w3cDoc);
-		  
-		  Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      Map<String, String> nameSpaces = new HashMap<String, String>();  
+	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");
+	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
+		 
 		  XPath xpath=new DefaultXPath(JING_DONG_ITEM_ID_XPATH);  
-	      nameSpaces.put("xmlns","http://www.w3.org/1999/xhtml");  
-	      xpath.setNamespaceContext(new SimpleNamespaceContext(nameSpaces));
-		  Object itemIdNode = xpath.selectSingleNode(document);
+	      xpath.setNamespaceContext(context);
+		  Object node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setItemId(((org.dom4j.Node)node).getText());
+		  }
+		  
+		  // category and name
+		  List<String> categoryPath = new ArrayList<String>(3);
+		  xpath = new DefaultXPath(JING_DONG_ITEM_CATEGORY_AND_NAME_XPATH);
+	      xpath.setNamespaceContext(context);
+		  node = xpath.selectNodes(document);
+		  if(null != node) {
+			  int length = ((List<org.dom4j.Node>)node).size();
+			  int i = 0;
+			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
+				  if(++i == length) {
+					  item.setName(n.getText());
+				  } else {
+					  categoryPath.add(n.getText());
+				  }
+			  }
+		  }
+		  
+		  // 生成类目树
+		  CategoryDO category = generateCategoryTree(categoryPath);
+		  item.setCategory(category);
+		  
+		  // price
+		  xpath = new DefaultXPath(JING_DONG_ITEM_PRICE_XPATH);  
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(discernJingdongPrice(((org.dom4j.Attribute)node).getValue()));
+		  }
+		  
+		  // photo
+		  xpath = new DefaultXPath(JING_DONG_ITEM_PHOTO_XPATH);  
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  }
 		  
 		  return item;
 	  } catch (IOException e) {
@@ -487,6 +560,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -556,8 +632,10 @@ public class DOMContentUtils {
   }
   
   static final String AMAZON_ITEM_NAME_XPATH = "//*[@id='btAsinTitle']/text()";
-  
   static final String AMAZON_ITEM_PRICE_XPATH = "//*[@id='actualPriceValue']/B";
+  static final String AMAZON_ITEM_PHOTO_XPATH = "//*[@id='prodImage']/@src";
+  static final String AMAZON_ITEM_PHOTO_XPATH_1 = "//*[@id='original-main-image']/@src";
+
   /**
    * 
    * @param content
@@ -571,8 +649,28 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
+		 /* Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(content.toString());
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
+		  
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -581,12 +679,33 @@ public class DOMContentUtils {
 	      DOMReader domReader = new DOMReader();
 	      org.dom4j.Document document = domReader.read(w3cDoc);
 	      
+	      XPath xpath = null;
+	      Object node = null;
+	      
 	      // itemId
-	      XPath xpath = new DefaultXPath(COO8_ITEM_ID_XPATH);
+	      String url = content.getUrl();
+	      int index0 = url.indexOf("/gp/product/");
+	      int index1 = -1;
+	      if(-1 != index0) {
+	    	  index1 = url.indexOf("/", index0 + "/gp/product/".length());
+	    	  if(-1 != index1) {
+	    		  item.setItemId(url.substring(index0 + "/gp/product/".length(), index1));
+	    	  }
+	      } else {
+	    	  index0 = url.indexOf("/dp/");
+	    	  if(-1 != index0) {
+		    	  index1 = url.indexOf("/", index0 + "/dp/".length());
+		    	  if(-1 != index1) {
+		    		  item.setItemId(url.substring(index0 + "/dp/".length(), index1));
+		    	  }
+		      }
+	      }
+	      
+	      /*XPath xpath = new DefaultXPath(COO8_ITEM_ID_XPATH);
 		  Object node = xpath.selectSingleNode(document);
 		  if(null != node) {
 			  item.setItemId(((org.dom4j.Node)node).getText());
-		  }
+		  }*/
 		  
 		  // itemName
 		  xpath = new DefaultXPath(AMAZON_ITEM_NAME_XPATH);
@@ -603,12 +722,23 @@ public class DOMContentUtils {
 		  }
 		  
 		  // photo
-		  String html = content.toString();
+		  /*String html = content.toString();
 		  int start = html.indexOf("\"hiResImage\":");
 		  if(-1 != start) {
 			  int end = html.indexOf(",", start);
 			  if(-1 != end) {
 				  item.setLogoURL(html.substring(start + "\"hiResImage\":".length() + "\"".length(), end - "\"".length()));
+			  }
+		  }*/
+		  xpath = new DefaultXPath(AMAZON_ITEM_PHOTO_XPATH);  
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
+		  } else {
+			  xpath = new DefaultXPath(AMAZON_ITEM_PHOTO_XPATH_1);  
+			  node = xpath.selectSingleNode(document);
+			  if(null != node) {
+				  item.setLogoURL(generatePhoto(((org.dom4j.Attribute)node).getValue()));
 			  }
 		  }
 		  return item;
@@ -641,6 +771,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -714,9 +847,9 @@ public class DOMContentUtils {
 	  return null;
   }
   
-  static final String GOME_ITEM_ID_XPATH = "//*[@id='prodNum']/text()";
-  static final String GOME_ITEM_NAME_XPATH = "//*[@id='prodDisplayNaLoad']/DIV/H2";
-  static final String GOME_ITEM_PRICE_XPATH = "/HTML/BODY/DIV[6]/DIV[1]/DIV[3]/DIV[3]/B";
+  static final String GOME_ITEM_ID_XPATH = "/HTML/BODY/DIV[4]/DIV[1]/DIV[3]/DIV[2]/text()";
+  static final String GOME_ITEM_NAME_XPATH = "//*[@id='lxf-sctc']/DIV[1]/DIV[2]/P";
+  static final String GOME_ITEM_PRICE_XPATH = "/HTML/BODY/DIV[4]/DIV[1]/DIV[3]/DIV[3]/B";
   static final String GOME_ITEM_PHOTO_XPATH = "//*[@id='pic_1']/@bgpic";
   static final String GOME_ITEM_CATEGORY_XPATH = "/HTML/BODY/DIV[4]/A/text()";
   
@@ -733,8 +866,27 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
-		  System.out.println(content.toString());
+		  //System.out.println(content.toString());
+		  /*Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(content.toString());
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -747,14 +899,15 @@ public class DOMContentUtils {
 	      XPath xpath = new DefaultXPath(GOME_ITEM_ID_XPATH);
 		  Object node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
+			  item.setItemId(((org.dom4j.Node)node).getText());
 		  }
 		  
 	      // itemName
 		  xpath = new DefaultXPath(GOME_ITEM_NAME_XPATH);
 		  node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
+			  String txt = ((org.dom4j.Node)node).getText();
+			  item.setName(txt.substring(0, txt.indexOf("已成功加入收藏")).trim());
 		  }
 		  
 		  // item category
@@ -806,7 +959,7 @@ public class DOMContentUtils {
   
   static final String SUNING_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:SPAN";
   static final String SUNING_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:A";
-  static final String SUNING_ITEM_PRICE_XPATH = "//*[@id='mainPrice']/xmlns:EM";
+  static final String SUNING_ITEM_PRICE_XPATH = "//*[@id='tellMe']/xmlns:A[1]/@href";
   static final String SUNING_ITEM_PHOTO_XPATH = "//*[@id='preView_box']/xmlns:DIV/xmlns:UL/xmlns:LI[1]/xmlns:IMG/@src2";
   
   /**
@@ -822,8 +975,11 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
-		  System.out.println(content.toString());
+		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -843,6 +999,15 @@ public class DOMContentUtils {
 		  if(null != node) {
 			  item.setName(((org.dom4j.Node)node).getText());
 		  }*/
+	      // itemId
+	      String url = content.getUrl();
+	      int index0 = url.indexOf("/emall/");
+	      if(-1 != index0) {
+	    	  int index1 = url.indexOf(".html");
+	    	  if(-1 != index1) {
+	    		  item.setItemId(url.substring(index0 + "/emall/".length(), index1));
+	    	  }
+	      }
 	      
 	      // itemName
 	      XPath xpath = new DefaultXPath(SUNING_ITEM_NAME_XPATH);
@@ -872,12 +1037,12 @@ public class DOMContentUtils {
 		  item.setCategory(category);
 		  
 		  // itemPrice
-		 /* xpath = new DefaultXPath(SUNING_ITEM_PRICE_XPATH);
+		 xpath = new DefaultXPath(SUNING_ITEM_PRICE_XPATH);
 		  xpath.setNamespaceContext(context);
 		  node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setPrice(Double.valueOf(((org.dom4j.Node)node).getText().replaceAll(",", "").trim()));
-		  }*/
+			  item.setPrice(getSuningPrice(((org.dom4j.Node)node).getText()));
+		  }
 		  
 		  // TODO 优惠价格
 		  
@@ -898,12 +1063,13 @@ public class DOMContentUtils {
 	  
 	  return null;
   }
-  
-  static final String NEW_EGG_ITEM_NAME_XPATH = "//*[@id=\'pro215419\']";
-  static final String NEW_EGG_ITEM_CATEGORY_XPATH = "//*[@id=\'crumb\']/xmlns:DIV/xmlns:A";
+
+  static final String NEW_EGG_ITEM_NAME_XPATH = "//*[@id='proCtner']/xmlns:DIV[1]/xmlns:H1";
+  static final String NEW_EGG_ITEM_CATEGORY_XPATH = "//*[@id='crumb']/xmlns:DIV/xmlns:A";
   static final String NEW_EGG_ITEM_PHOTO_XPATH = "//*[@id='thumbnails1']/xmlns:DIV/xmlns:UL/xmlns:LI[1]/xmlns:A/xmlns:IMG/@ref2";
-  static final String NEW_EGG_ITEM_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[4]/xmlns:DEL";
-  static final String NEW_EGG_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:p[1]/xmlns:IMG/@src";
+//*[@id="proMainInfo"]/div[2]/div[1]/dl/dd[4]/p[1]/img
+  static final String NEW_EGG_ITEM_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[4]/xmlns:P[1]/xmlns:IMG/@src";
+  static final String NEW_EGG_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:P[1]/xmlns:IMG/@src";
   
   /**
    * 
@@ -918,8 +1084,11 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
-		  System.out.println(content.toString());
+		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -939,6 +1108,15 @@ public class DOMContentUtils {
 		  if(null != node) {
 			  item.setName(((org.dom4j.Node)node).getText());
 		  }*/
+	      
+	      String url = content.getUrl();
+	      int index0 = url.indexOf("/Product/");
+	      if(-1 != index0) {
+	    	  int index1 = url.indexOf(".htm", index0 + "/Product/".length());
+	    	  if(-1 != index1) {
+	    		  item.setItemId(url.substring(index0 + "/Product/".length(), index1));
+	    	  }
+	      }
 	      
 	      // itemName
 	      XPath xpath = new DefaultXPath(NEW_EGG_ITEM_NAME_XPATH);
@@ -968,15 +1146,28 @@ public class DOMContentUtils {
 		  item.setCategory(category);
 		  
 		  // itemPrice
-		  xpath = new DefaultXPath(NEW_EGG_ITEM_PRICE_XPATH);
+		  /*xpath = new DefaultXPath(NEW_EGG_ITEM_PRICE_XPATH);
 		  xpath.setNamespaceContext(context);
 		  node = xpath.selectSingleNode(document);
 		  if(null != node) {
 			  item.setPrice(DOMContentUtils.discernNewEggPrice((((org.dom4j.Node)node).getText())));
-		  }
+		  }*/
 		  
 		  // TODO 优惠价格
-		  
+		  xpath = new DefaultXPath(NEW_EGG_ITEM_PROMOTION_PRICE_XPATH);
+		  xpath.setNamespaceContext(context);
+		  node = xpath.selectSingleNode(document);
+		  if(null != node) {
+			  item.setPrice(DOMContentUtils.discernNewEggPrice((((org.dom4j.Node)node).getText())));
+		  } else {
+			  // 拿新蛋价格
+			  xpath = new DefaultXPath(NEW_EGG_ITEM_PRICE_XPATH);
+			  xpath.setNamespaceContext(context);
+			  node = xpath.selectSingleNode(document);
+			  if(null != node) {
+				  item.setPrice(DOMContentUtils.discernNewEggPrice((((org.dom4j.Node)node).getText())));
+			  }
+		  }
 		  // photo
 		  xpath = new DefaultXPath(NEW_EGG_ITEM_PHOTO_XPATH);
 		  xpath.setNamespaceContext(context);
@@ -994,9 +1185,9 @@ public class DOMContentUtils {
 	  
 	  return null;
   }
-  
-  static final String NO1_SHOP_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:DIV[3]/xmlns:DIV[1]/xmlns:H2/xmlns:FONT";
-  static final String NO1_SHOP_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:DIV[2]/xmlns:SPAN/xmlns:A";
+
+  static final String NO1_SHOP_ITEM_NAME_XPATH = "//*[@id='productMainName']";
+  static final String NO1_SHOP_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[5]/xmlns:DIV[1]/xmlns:SPAN/xmlns:A";
   static final String NO1_SHOP_ITEM_PHOTO_XPATH = "//*[@id='productImg']/@src";
   static final String NO1_SHOP_ITEM_PRICE_XPATH = "//*[@id='nonMemberPrice']/xmlns:STRONG";
   static final String NO1_SHOP_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='proMainInfo']/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DL/xmlns:DD[5]/xmlns:p[1]/xmlns:IMG/@src";
@@ -1014,6 +1205,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -1035,6 +1229,12 @@ public class DOMContentUtils {
 		  if(null != node) {
 			  item.setName(((org.dom4j.Node)node).getText());
 		  }*/
+	      
+	      String url = content.getUrl();
+	      int index0 = url.indexOf("/product/");
+	      if(-1 != index0) {
+	    	  item.setItemId(url.substring(index0 + "/product/".length(), url.length()));
+	      }
 	      
 	      // itemName
 	      XPath xpath = new DefaultXPath(NO1_SHOP_ITEM_NAME_XPATH);
@@ -1091,6 +1291,7 @@ public class DOMContentUtils {
 	  return null;
   }
   
+  static final String FIVE_I_BUY_ITEM_ID_XPATH = "//*[@id='container']/DIV[2]/DIV[2]/H1/SPAN";
   static final String FIVE_1_BUY_ITEM_NAME_XPATH = "//*[@id='container']/DIV[2]/DIV[2]/H1";
   static final String FIVE_1_BUY_ITEM_CATEGORY_XPATH = "//*[@id='container']/DIV[1]/A";
   static final String FIVE_1_BUY_ITEM_PHOTO_XPATH = "//*[@id='smallImage']/@src";
@@ -1111,6 +1312,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -1122,16 +1326,15 @@ public class DOMContentUtils {
 	      org.dom4j.Document document = domReader.read(w3cDoc);
 	      
 	      // itemId
-	      /*XPath xpath = new DefaultXPath(SUNING_ITEM_ID_XPATH);
-	      xpath.setNamespaceContext(context);
+	      XPath xpath = new DefaultXPath(FIVE_I_BUY_ITEM_ID_XPATH);
 		  Object node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
-		  }*/
+			  item.setItemId(((org.dom4j.Node)node).getText().substring("产品编号：".length()));
+		  }
 	      
 	      // itemName
-	      XPath xpath = new DefaultXPath(FIVE_1_BUY_ITEM_NAME_XPATH);
-		  Object node = xpath.selectSingleNode(document);
+	      xpath = new DefaultXPath(FIVE_1_BUY_ITEM_NAME_XPATH);
+		  node = xpath.selectSingleNode(document);
 		  if(null != node) {
 			  item.setName(((org.dom4j.Node)node).getText());
 		  }
@@ -1181,8 +1384,8 @@ public class DOMContentUtils {
 	  
 	  return null;
   }
-  
-  static final String LUSEN_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[1]/xmlns:DIV[7]/xmlns:DIV[3]/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DIV[2]/text()";
+ 
+  static final String LUSEN_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[1]/xmlns:DIV[7]/xmlns:DIV[3]/xmlns:DIV[2]/xmlns:DIV[1]/xmlns:DIV[2]";
   static final String LUSEN_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[1]/xmlns:DIV[7]/xmlns:DIV[1]/xmlns:DIV[2]/xmlns:A";
   static final String LUSEN_ITEM_PHOTO_XPATH = "//*[@id='smallPic']/@lazy_src";
   static final String LUSEN_ITEM_PRICE_XPATH = "//*[@id='DivProducInfo']/xmlns:DIV[2]/xmlns:SPAN[2]/xmlns:FONT";
@@ -1202,8 +1405,28 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
+		  /*Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(content.toString());
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
+		  
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -1223,6 +1446,7 @@ public class DOMContentUtils {
 		  if(null != node) {
 			  item.setName(((org.dom4j.Node)node).getText());
 		  }*/
+	      item.setItemId(URLUtil.getParameter(content.getUrl(), "id"));
 	      
 	      // itemName
 	      XPath xpath = new DefaultXPath(LUSEN_ITEM_NAME_XPATH);
@@ -1290,7 +1514,7 @@ public class DOMContentUtils {
   static final String EFEIHU_ITEM_ID_XPATH = "//*[@id='itemId_no']";
   static final String EFEIHU_ITEM_NAME_XPATH = "//*[@id='itemName']/xmlns:H2";
   static final String EFEIHU_ITEM_CATEGORY_XPATH = "//*[@id='ctl00_ContentPlaceHolder1_ctl10_div1']/xmlns:LI/xmlns:A/text()";
-  static final String EFEIHU_ITEM_PHOTO_XPATH = "//*[@id='itemPreview_big']/xmlns:IMG/@jqimg";
+  static final String EFEIHU_ITEM_PHOTO_XPATH = "//*[@id='smallimg_list']/xmlns:LI[1]/xmlns:DIV/xmlns:A/xmlns:IMG/@src";
   static final String EFEIHU_ITEM_PRICE_XPATH = "//*[@id='dom_sale_price']";
   static final String EFEIHU_ITEM_PROMOTION_PRICE_XPATH = "//*[@id='dom_sale_price']";
   static final String EFEIHU_ITEM_GIFT_XPATH = "";
@@ -1308,8 +1532,27 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
+		  /*Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(new String(content.getContent(), "gbk"));
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -1327,7 +1570,7 @@ public class DOMContentUtils {
 	      xpath.setNamespaceContext(context);
 		  Object node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
+			  item.setItemId(((org.dom4j.Node)node).getText());
 		  }
 	      
 	      // itemName
@@ -1392,7 +1635,7 @@ public class DOMContentUtils {
 	  
 	  return null;
   }
-  
+
   static final String TAO3C_ITEM_ID_XPATH = "//*[@id='mainright']/xmlns:DIV/xmlns:DIV[3]/xmlns:DIV[1]/xmlns:DIV[1]";
   static final String TAO3C_ITEM_NAME_XPATH = "//*[@id='mainright']/xmlns:DIV/xmlns:DIV[1]";
   static final String TAO3C_ITEM_CATEGORY_XPATH = "//*[@id='main']/xmlns:DIV[1]/xmlns:A";
@@ -1414,8 +1657,28 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
+		  /*Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(new String(content.getContent(), "gbk"));
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
+		  
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -1433,7 +1696,7 @@ public class DOMContentUtils {
 	      xpath.setNamespaceContext(context);
 		  Object node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
+			  item.setItemId(((org.dom4j.Node)node).getText());
 		  }
 	      
 	      // itemName
@@ -1441,7 +1704,7 @@ public class DOMContentUtils {
 		  xpath.setNamespaceContext(context);
 	      node = xpath.selectSingleNode(document);
 		  if(null != node) {
-			  item.setName(((org.dom4j.Node)node).getText());
+			  item.setName(((org.dom4j.Node)node).getText().substring("商品编号：".length()));
 		  }
 		  
 	      // category
@@ -1530,6 +1793,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -1545,7 +1811,11 @@ public class DOMContentUtils {
 	      SimpleNamespaceContext context = new SimpleNamespaceContext(nameSpaces);
 	      
 	      // itemId
-	      
+	      String url = content.getUrl();
+	      int index0 = url.indexOf("/goods");
+	      if(-1 != index0) {
+	    	  item.setItemId(url.substring(index0 + "/".length(), url.length()));
+	      }
 	      
 	      // itemName
 	      XPath xpath = new DefaultXPath(OUKU_ITEM_NAME_XPATH);
@@ -1612,7 +1882,7 @@ public class DOMContentUtils {
   }
   
   static final String NEW7_ITEM_ID_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[4]/xmlns:DIV[2]/xmlns:DL[1]/xmlns:DD";
-  static final String NEW7_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[4]/xmlns:DIV[2]/xmlns:H1/xmlns:STRONG[1]";
+  static final String NEW7_ITEM_NAME_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[3]/text()";
   static final String NEW7_ITEM_CATEGORY_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[3]/xmlns:A";
   static final String NEW7_ITEM_PHOTO_XPATH = "//*[@id='list']/xmlns:DIV[1]/xmlns:A/xmlns:IMG/@jqimg";
   static final String NEW7_ITEM_PRICE_XPATH = "/xmlns:HTML/xmlns:BODY/xmlns:DIV[4]/xmlns:DIV[2]/xmlns:DL[2]/xmlns:DD/text()";
@@ -1632,8 +1902,28 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
+		 /* Writer writer = null;
+		  try {
+			  writer = new BufferedWriter(new FileWriter("/home/sihai/test.html"));
+			  writer.write(content.toString());
+			  writer.flush();
+		  } catch (IOException e) {
+			  e.printStackTrace();
+		  } finally{
+			  if(null != writer) {
+				  try {
+					  writer.close();
+				  } catch (IOException e) {
+					  e.printStackTrace();
+				  }
+			  }
+		  }*/
+		  
 		  byte[] contentInOctets = content.getContent();
 	      InputSource input = new InputSource(new ByteArrayInputStream(contentInOctets));
 	      DOMParser parser = new DOMParser();
@@ -1671,7 +1961,7 @@ public class DOMContentUtils {
 			  int length = ((List<org.dom4j.Node>)node).size();
 			  int i = 0;
 			  for(org.dom4j.Node n : (List<org.dom4j.Node>)node) {
-				  if(++i != 1 && i != length) {
+				  if(++i != 1) {
 					  categoryPath.add(n.getText());
 				  }
 			  }
@@ -1739,6 +2029,9 @@ public class DOMContentUtils {
 		  item.setDetailURL(content.getUrl());
 		  item.setStuffStatus(StuffStatusEnum.STUFF_NEW.getValue());
 		  item.setNumber(-1L);
+		  item.setStatus(ItemStatusEnum.ITEM_STATUS_ON_SALE.getValue());
+		  item.setFreightFeePayer(FreightFeePayerEnum.FREIGHT_FEE_PALYER_SELLER.getValue());
+		  item.setIsDeleted(false);
 		  
 		  //System.out.println(content.toString());
 		  byte[] contentInOctets = content.getContent();
@@ -1846,20 +2139,72 @@ public class DOMContentUtils {
   
   public static Double discernJingdongPrice(String photoURL) {
 	  System.out.println(String.format("Price photo url:%s", photoURL));
-	  // FIXME
-	  return 0.99D;
+	  File tmpFile = null;
+      try {
+    	  tmpFile = getFile(photoURL, ".png");
+          String result = instance.doOCR(tmpFile);
+          if(result.startsWith("Y")) {
+        	  return Double.valueOf(result.substring("Y".length()));
+          } else if(result.startsWith("51")) {
+        	  return Double.valueOf(result.substring("51".length()));
+          } else {
+        	  return Double.valueOf(result);
+          }
+      } catch (TesseractException e) {
+          logger.error(e);
+      } finally {
+    	  if(null != tmpFile) {
+    		  tmpFile.delete();
+    	  }
+      }
+	  return null;
   }
 
   public static Double discernCoo8Price(String photoURL) {
 	  System.out.println(String.format("Price photo url:%s", photoURL));
-	  // FIXME
-	  return 0.99D;
+	  File tmpFile = null;
+      try {
+    	  tmpFile = getFile(photoURL, ".png");
+          String result = instance.doOCR(tmpFile);
+          return Double.valueOf(result.substring("¥".length()));
+      } catch (TesseractException e) {
+    	  logger.error(e);
+      } finally {
+    	  if(null != tmpFile) {
+    		  tmpFile.delete();
+    	  }
+      }
+	  return null;
   }
   
   public static Double discernNewEggPrice(String photoURL) {
 	  System.out.println(String.format("Price photo url:%s", photoURL));
-	  // FIXME
-	  return 0.99D;
+	  File tmpFile = null;
+      try {
+    	  tmpFile = getFile(photoURL, ".gif");
+          String result = instance.doOCR(tmpFile);
+          return Double.valueOf(result);
+      } catch (TesseractException e) {
+    	  logger.error(e);
+      } finally {
+    	  if(null != tmpFile) {
+    		  tmpFile.delete();
+    	  }
+      }
+	  return null;
+  }
+  
+  public static Double getSuningPrice(String html) {
+	  String[] kvs = html.split("&");
+	  String[] kv = null;
+	  for(String s : kvs) {
+		  if(s.contains("currPrice")) {
+			  kv = s.split("=");
+			  return Double.valueOf(kv[1]);
+		  }
+	  }
+	  
+	  return null;
   }
   
   public static Double getRedBabyPrice(String itemId) {
@@ -1906,6 +2251,59 @@ public class DOMContentUtils {
   public static String generatePhoto(String src) {
 	  // Do nothing
 	  return src;
+  }
+  
+  public static File getFile(String strURL, String suffix) {
+	  BufferedOutputStream out = null;
+	  try {
+		  Protocol protocol = protocolFactory.getProtocol(strURL);
+		  ProtocolOutput output = protocol.getProtocolOutput(new Text(strURL), new CrawlDatum());
+		  URL url = new URL(strURL);
+		  String fileName = url.getFile();
+		  if(StringUtil.isEmpty(fileName)) {
+			  return null;
+		  }
+		  File tmpFile = File.createTempFile("matrix_price_file", suffix);
+		  tmpFile.deleteOnExit();
+		  out = new BufferedOutputStream(new FileOutputStream(tmpFile));
+		  out.write(output.getContent().getContent(), 0, output.getContent().getContent().length);
+		  out.flush();
+		  return tmpFile;
+	  } catch (ProtocolNotFound e) {
+		  logger.error("Not prossiable");
+		  return null;
+	  } catch (MalformedURLException e) {
+			logger.error(String.format("Wrong url:%s", strURL), e);
+	  } catch (IOException e) { 
+			logger.error(String.format("Read url:%s or write content to file failed: ", strURL), e);
+	  }  finally {
+			if(null != out) {
+				try {
+					out.close();
+				} catch (IOException e) {
+					logger.error(e);
+				}
+			}
+	  }
+	  return null;
+  }
+  
+  public static void main(String[] args) {
+	  
+	  System.out.println(discernJingdongPrice("http://jprice.360buyimg.com/price/gp306412-1-1-3.png"));
+	  System.out.println(discernCoo8Price("http://price.51mdq.com/iprice/218/218041,4.png"));
+	  System.out.println(discernNewEggPrice("http://www.newegg.com.cn/Common/PriceImage.aspx?PId=zVGJOBSvSac%3d"));
+	  
+	  /*try {
+		  String result = instance.doOCR(new File("/home/sihai/matrix_price_file3420572322911722107.png"));
+      	  System.out.println(result);
+		  result = instance.doOCR(new File("/home/sihai/matrix_price_file6289927822260068121.png"));
+      	  System.out.println(result);
+      	  result = instance.doOCR(new File("/home/sihai/matrix_price_file6359705014357507256.gif"));
+      	  System.out.println(result);
+	  } catch (TesseractException e) {
+		  e.printStackTrace();
+	  }*/
   }
 }
 

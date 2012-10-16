@@ -91,6 +91,7 @@ import org.apache.nutch.scoring.ScoringFilterException;
 import org.apache.nutch.scoring.ScoringFilters;
 import org.apache.nutch.util.NutchConfiguration;
 import org.apache.nutch.util.NutchJob;
+import org.apache.nutch.util.NutchThreadFactory;
 import org.apache.nutch.util.StringUtil;
 import org.apache.nutch.util.TimingUtil;
 import org.apache.nutch.util.URLUtil;
@@ -165,13 +166,16 @@ public class Fetcher extends Configured implements Tool,
 	public static int DEFAULT_MAX_WORK_QUEUE_SIZE = 2048;
 	public static long MAX_KEEP_ALIVE_TIME = 60;
 	  
-	private int minThread = DEFAULT_MIN_THREAD;
-	private int maxThread = DEFAULT_MAX_THREAD;
-	private int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
-	private long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
+	private static int minThread = DEFAULT_MIN_THREAD;
+	private static int maxThread = DEFAULT_MAX_THREAD;
+	private static int workQueueSize = DEFAULT_MAX_WORK_QUEUE_SIZE;
+	private static long keepAliveTime = MAX_KEEP_ALIVE_TIME;							// s
 
-	private BlockingQueue<Runnable> workQueue;	//
-	private ThreadPoolExecutor threadPool;			//
+	private static BlockingQueue<Runnable> workQueue;	//
+	private static ThreadPoolExecutor threadPool;			//
+	
+	private static Object _threadPool_lock_ = new Object();
+	private static boolean _threadPool_inited_ = false;
 	
 	
   public static class InputFormat extends SequenceFileInputFormat<Text, CrawlDatum> {
@@ -1220,16 +1224,21 @@ public class Fetcher extends Configured implements Tool,
 
   public Fetcher(Configuration conf) { 
 	  super(conf);
-	  if(null != conf) {
-		  minThread = conf.getInt("parserURL.minThread", DEFAULT_MIN_THREAD);
-		  maxThread = conf.getInt("parserURL.maxThread", DEFAULT_MAX_THREAD);
-		  workQueueSize = conf.getInt("parserURL.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
-		  keepAliveTime = conf.getLong("parserURL.keepAliveTime", MAX_KEEP_ALIVE_TIME);
+	  synchronized(_threadPool_lock_) {
+		  if(!_threadPool_inited_) {
+			  if(null != conf) {
+				  minThread = conf.getInt("parserURL.minThread", DEFAULT_MIN_THREAD);
+				  maxThread = conf.getInt("parserURL.maxThread", DEFAULT_MAX_THREAD);
+				  workQueueSize = conf.getInt("parserURL.workQueueSize", DEFAULT_MAX_WORK_QUEUE_SIZE);
+				  keepAliveTime = conf.getLong("parserURL.keepAliveTime", MAX_KEEP_ALIVE_TIME);
+			  }
+			  workQueue = new LinkedBlockingQueue<Runnable>(workQueueSize);
+			  threadPool = new ThreadPoolExecutor(minThread, maxThread,
+			            keepAliveTime, TimeUnit.SECONDS,
+			            workQueue, new NutchThreadFactory("URL-Parser", null, true));
+			  _threadPool_inited_ = true;
+	    	}
 	  }
-	  workQueue = new LinkedBlockingQueue<Runnable>(workQueueSize);
-	  threadPool = new ThreadPoolExecutor(minThread, maxThread,
-	            keepAliveTime, TimeUnit.SECONDS,
-	            workQueue, new ThreadFactoryBuilder().setNameFormat("parse-%d").setDaemon(true).build());
   }
 
   private void updateStatus(int bytesInPage) throws IOException {
